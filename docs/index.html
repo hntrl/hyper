@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>The (unnamed) language</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="tailwind.css">
+  </head>
+  <body class="bg-gray-900 scroll-smooth">
+    <main class="max-w-4xl mx-auto p-12 prose prose-invert prose-md prose-pre:bg-gray-800">
+      <h1>The (unnamed) language</h1>
+      <p>(unnamed) is a backend language + framework developed as a hobby. Files written in (unnamed) are meant to deliver a consistent backend that can be interpreted by any number of consumers.</p>
+      <a href="#syntax" class="mb-0 no-underline text-blue-600 hover:text-blue-300 transition-all">Jump to syntax and use cases →</a>
+      <h2>Motivations</h2>
+      <p>Developing systems at scale is hard. A big hurdle when it comes to backend development is how easily complexity and bias gets introduced into the mix. This can create a lot of problems — namely in more overhead costs and a worse experience for your end-user.</p>
+      <p>This project intends to solve some of those issues by giving an easy-to-adopt framework built on principles that exist in fault-tolerant and performant systems today. This way developers start their projects with scale in mind, instead of wasting time doing it later.</p>
+      <h3 class="italic">"My project doesn't need to scale!"</h3>
+      <p>You're right! A lot of times the traditional way of doing things makes sense especially when you don't expect to have thousands of users. Like any framework, (unnamed) has its uses but that doesn't mean its applicable for every project under the sun. However, a system utilizing (unnamed) serves as the basis for your backend that is detracted from the bias of implementing it in any one framework or backend <strong>(?)</strong>.</p>
+      <h2 id="syntax" class="pt-8 mt-4">Syntax</h2>
+      <p>Files written in (unnamed) mainly serve one purpose — to describe the components of an area of a system, called a context, in the system at large, known as a <a href="https://en.wikipedia.org/wiki/Domain_(software_engineering)" target="_blank">domain</a>.</p>
+      <pre>
+<!-----><code><span><span class="text-blue-500">context</span> acme.product {</span>
+<!-----><span>  <span class="text-blue-500">type</span> Product {</span>
+<!-----><span>    name  <span class="text-blue-400">String</span></span>
+<!-----><span>    price <span class="text-blue-400">Double</span></span>
+<!-----><span>  }</span>
+<!-----><span>  <span class="text-blue-500">type</span> LineItem {</span>
+<!-----><span>    product  <span class="text-blue-300">Product</span></span>
+<!-----><span>    quantity <span class="text-blue-400">Int</span></span>
+<!-----><span>  }</span>
+<!-----><span>}</span></code></pre>
+      <p>You should have one context for each meaningful area of interest in a domain (think of it like a microservice). This way of modelling systems is a way to represent meaningful real-world concepts relevant to the domain without including technical jargon that will confuse non-technical stakeholders.</p>
+      <p>For instance if you're building a system for doing ecommerce, these are some contexts you'd need to implement:</p>
+      <ul>
+        <li>Product</li>
+        <li>Cart</li>
+        <li>Checkout</li>
+        <li>Order</li>
+        <li>Fulfillment</li>
+      </ul>
+      <h3>Objects</h3>
+      <p>… are the things describing a context</p>
+      <h3>Interfaces</h3>
+      <p></p>
+      <h3>Methods</h3>
+      <p></p>
+      <h2>Use cases</h2>
+      <p>As mentioned above, contexts are intended to be used by multiple consumers. For instance, consider the following context.</p>
+      <pre>
+<!-----><code><span><span class="text-blue-500">context</span> acme.product {</span>
+<!-----><span>  <span class="text-blue-500">entity</span> Product {</span>
+<!-----><span>    product_id <span class="text-blue-400">String</span></span>
+<!-----><span>    name       <span class="text-blue-400">String</span></span>
+<!-----><span>    price      <span class="text-blue-400">Double</span></span>
+<!-----><span>  }</span>
+<!-----><span>  <span class="text-blue-500">query</span> FetchProducts() []<span class="text-blue-300">Product</span> {</span>
+<!-----><span>    <span>return Product.query()</span>
+<!-----><span>  }</span>
+<!-----><span>  <span class="text-blue-500">query</span> FetchProduct(product_id: <span class="text-blue-400">String</span>) <span class="text-blue-300">Product</span> {</span>
+<!-----><span>    <span>return Product.findOne({ product_id: product_id })</span>
+<!-----><span>  }</span>
+<!-----><span>  <span class="text-blue-500">command</span> DeleteProduct(product_id: <span class="text-blue-400">String</span>) {</span>
+<!-----><span>    <span>Product.findOne({ product_id: product_id }).delete()</span>
+<!-----><span>  }</span>
+<!-----><span>}</span></code></pre>
+      <p>You could then use this context:</p>
+      <h4>In a React component</h4>
+      <pre>
+        <code>
+          import { useQuery } from '(unnamed)';
+          import { FetchProducts } from 'acme.product';
+
+          export function CategoryPage() {
+            const { data, loading, error } = useQuery(FetchProducts, {});
+            return (
+              // ...a bunch of products
+            );
+          }
+        </code>
+      </pre>
+      <h4>In a REST/OpenAPI definition</h4>
+      <pre>
+        <code>
+          endpoints:
+            /api/products:
+              get:
+                query: acme.product.FetchProducts
+            /api/products/{productID}:
+              get:
+                query: acme.product.FetchProduct
+                body: $path.productID
+              delete:
+                command: acme.product.DeleteProduct
+                body: $path.productID
+        </code>
+      </pre>
+      <h4>As a graph</h4>
+      <h2>Resources</h2>
+      <p><a href="https://en.wikipedia.org/wiki/Domain-driven_design" target="_blank">Domain-Driven-Design</a>, <a href="https://www.reactivemanifesto.org/" target="_blank">Reactive Architecture</a>, and <a href="https://en.wikipedia.org/wiki/Eventual_consistency" target="_blank">Eventual Consistency</a></p>
+    </main>
+  </body>
+</html>
