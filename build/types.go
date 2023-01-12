@@ -16,8 +16,8 @@ type GenericObject struct {
 
 var genericHash = getHash(GenericObject{})
 
-func NewGenericObject() GenericObject {
-	return GenericObject{
+func NewGenericObject() *GenericObject {
+	return &GenericObject{
 		fields: make(map[string]Class),
 		data:   make(map[string]ValueObject),
 	}
@@ -43,7 +43,7 @@ func (obj GenericObject) Value() interface{} {
 	}
 	return out
 }
-func (obj GenericObject) Set(key string, new ValueObject) error {
+func (obj *GenericObject) Set(key string, new ValueObject) error {
 	if class, ok := obj.fields[key]; ok {
 		if !ClassEquals(class, new.Class()) {
 			return fmt.Errorf("cannot assign %s to %s", new.Class().ClassName(), class.ClassName())
@@ -77,10 +77,10 @@ func (t Type) Constructors() ConstructorMap {
 		for key, class := range t.fields {
 			if nilableClass, ok := class.(NilableObject); ok {
 				nilableClass.Object = data[key]
-				obj.fields[key] = nilableClass
+				obj.fields[key] = &nilableClass
 			}
 		}
-		return obj, nil
+		return &obj, nil
 	})
 	return csMap
 }
@@ -101,26 +101,26 @@ func (t Type) ObjectClassFromNode(ctx *Context, node nodes.ContextObject) (Class
 		if err != nil {
 			return nil, err
 		}
-		if objectClass, ok := class.(ObjectClass); ok {
-			if fields := objectClass.Fields(); fields != nil {
-				for k, v := range fields {
-					t.fields[k] = v
-				}
-			}
-		} else {
+		objectClass, ok := class.(ObjectClass)
+		if !ok {
 			return nil, fmt.Errorf("cannot extend %s", class.ClassName())
+		}
+		if fields := objectClass.Fields(); fields != nil {
+			for k, v := range fields {
+				t.fields[k] = v
+			}
 		}
 	}
 	for _, item := range node.Fields {
-		if typeExpr, ok := item.Init.(nodes.TypeStatement); ok {
-			obj, err := ctx.EvaluateTypeExpression(typeExpr.Init)
-			if err != nil {
-				return nil, err
-			}
-			t.fields[typeExpr.Name] = obj
-		} else {
+		typeExpr, ok := item.Init.(nodes.TypeStatement)
+		if !ok {
 			return nil, fmt.Errorf("expected type statement")
 		}
+		obj, err := ctx.EvaluateTypeExpression(typeExpr.Init)
+		if err != nil {
+			return nil, err
+		}
+		t.fields[typeExpr.Name] = obj
 	}
 
 	return t, nil
@@ -142,7 +142,7 @@ func (to TypeObject) Value() interface{} {
 	}
 	return out
 }
-func (to TypeObject) Set(key string, obj ValueObject) error {
+func (to *TypeObject) Set(key string, obj ValueObject) error {
 	to.fields[key] = obj
 	return nil
 }
@@ -152,7 +152,7 @@ func (to TypeObject) Get(key string) Object {
 
 type Iterable struct {
 	ParentType Class
-	Items      []ValueObject
+	Items      []ValueObject `hash:"ignore"`
 }
 
 func NewIterable(class Class, len int) Iterable {
@@ -181,28 +181,48 @@ func (it Iterable) Value() interface{} {
 	return out
 }
 func (it Iterable) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, it)
 }
 func (it Iterable) Get(key string) Object {
-	return nil
+	methods := map[string]Object{
+		"append": NewFunction(FunctionOptions{
+			Arguments: []Class{
+				it.ParentType,
+			},
+			Returns: it,
+			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+				it.Items = append(it.Items, args[0])
+				return it, nil
+			},
+		}),
+	}
+	return methods[key]
 }
 
-func (it Iterable) GetIndex(index int) ValueObject {
-	return it.Items[index]
+func (it Iterable) GetIndex(index int) (ValueObject, error) {
+	if index > it.Len() || index < 0 {
+		return nil, fmt.Errorf("index out of range")
+	}
+	return it.Items[index], nil
 }
 func (it Iterable) SetIndex(index int, obj ValueObject) error {
 	it.Items[index] = obj
 	return nil
 }
-func (it Iterable) Range(a, b int) Iterable {
+func (it Iterable) Range(a, b int) (Indexable, error) {
+	if a > it.Len() || b > it.Len() || a < 0 || b < 0 {
+		return nil, fmt.Errorf("index out of range")
+	}
 	return Iterable{
 		ParentType: it.ParentType,
 		Items:      it.Items[a:b],
-	}
+	}, nil
 }
 func (it Iterable) Len() int {
 	return len(it.Items)
 }
+
+// TODO: Nilable types should not satisfy it's not nilable type. (i.e. String? should not satisfy String)
 
 type NilableObject struct {
 	ClassObject Class
@@ -229,22 +249,21 @@ func (no NilableObject) Fields() map[string]Class {
 func (no NilableObject) Constructors() ConstructorMap {
 	csMap := NewConstructorMap()
 	csMap.AddConstructor(NilLiteral{}, func(ValueObject) (ValueObject, error) {
-		return NilableObject{no.ClassObject, nil}, nil
+		return &NilableObject{no.ClassObject, nil}, nil
 	})
 	innerConstructors := no.ClassObject.Constructors()
 	for classHash, constructor := range innerConstructors.values {
 		if constructorFn, ok := constructor.(ConstructorFn); ok {
 			// FIXME: needs a better way then assigning directly to the hashmap
 			csMap.values[classHash] = ConstructorFn(func(obj ValueObject) (ValueObject, error) {
-				if obj != nil {
-					csObj, err := constructorFn(obj)
-					if err != nil {
-						return nil, err
-					}
-					return NilableObject{no.ClassObject, csObj}, nil
-				} else {
+				if obj == nil {
 					return nil, fmt.Errorf("cannot construct %s from nil", no.ClassName())
 				}
+				csObj, err := constructorFn(obj)
+				if err != nil {
+					return nil, err
+				}
+				return &NilableObject{no.ClassObject, csObj}, nil
 			})
 		}
 	}
@@ -255,7 +274,7 @@ func (no NilableObject) Constructors() ConstructorMap {
 			if err != nil {
 				return nil, err
 			}
-			return NilableObject{no.ClassObject, csObj}, nil
+			return &NilableObject{no.ClassObject, csObj}, nil
 		})
 		csMap.generic = &newFn
 	}
@@ -271,7 +290,7 @@ func (no NilableObject) Value() interface{} {
 	}
 	return no.Object.Value()
 }
-func (no NilableObject) Set(key string, obj ValueObject) error {
+func (no *NilableObject) Set(key string, obj ValueObject) error {
 	if no.Object == nil {
 		return fmt.Errorf("cannot set value on nil")
 	}
@@ -323,7 +342,7 @@ func (err Error) Value() interface{} {
 	return err.Message
 }
 func (err Error) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, err)
 }
 func (err Error) Get(key string) Object {
 	return nil

@@ -1016,8 +1016,28 @@ video {
   background-color: rgb(17 24 39 / var(--tw-bg-opacity));
 }
 
-.p-12 {
-  padding: 3rem;
+.p-4 {
+  padding: 1rem;
+}
+
+.py-12 {
+  padding-top: 3rem;
+  padding-bottom: 3rem;
+}
+
+.px-4 {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.px-8 {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.px-6 {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
 }
 
 .pt-8 {

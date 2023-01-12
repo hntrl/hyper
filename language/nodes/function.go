@@ -230,9 +230,10 @@ func ParseFunctionBlock(p *parser.Parser) (*FunctionBlock, error) {
 	return &fn, nil
 }
 
-// FunctionExpression :: FUNC FunctionBlock
+// FunctionExpression :: FUNC IDENT FunctionBlock
 type FunctionExpression struct {
 	pos  tokens.Position
+	Name string
 	Body FunctionBlock
 }
 
@@ -252,11 +253,15 @@ func ParseFunctionExpression(p *parser.Parser) (*FunctionExpression, error) {
 	if tok != tokens.FUNC {
 		return nil, ExpectedError(pos, tokens.FUNC, lit)
 	}
+	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok != tokens.IDENT {
+		return nil, ExpectedError(pos, tokens.IDENT, lit)
+	}
 	block, err := ParseFunctionBlock(p)
 	if err != nil {
 		return nil, err
 	}
-	return &FunctionExpression{pos: pos, Body: *block}, nil
+	return &FunctionExpression{pos: pos, Name: lit, Body: *block}, nil
 }
 
 // Block :: BlockStatement*

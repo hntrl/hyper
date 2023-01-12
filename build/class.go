@@ -17,15 +17,16 @@ import (
 func FromBytes(bytes []byte) (ValueObject, error) {
 	var str string
 	isString := json.Unmarshal(bytes, &str) == nil
-	var obj map[string]interface{}
-	isJSON := json.Unmarshal(bytes, &obj) == nil
+	var obj interface{}
+	err := json.Unmarshal(bytes, &obj)
+	isJSON := err == nil
 
 	if isJSON {
 		return FromInterface(obj)
 	} else if isString {
 		return StringLiteral(str), nil
 	} else {
-		return nil, fmt.Errorf("cannot unmarshal %s", string(bytes))
+		return nil, fmt.Errorf("cannot unmarshal object: %s", err)
 	}
 }
 
@@ -48,7 +49,17 @@ func FromInterface(obj interface{}) (ValueObject, error) {
 			}
 			arr = append(arr, item)
 		}
-		return Iterable{GenericObject{}, arr}, nil
+		if len(arr) == 0 {
+			return Iterable{
+				GenericObject{},
+				arr,
+			}, nil
+		} else {
+			return Iterable{
+				arr[0].Class(),
+				arr,
+			}, nil
+		}
 	case reflect.Map:
 		generic := NewGenericObject()
 		iter := items.MapRange()
@@ -64,6 +75,8 @@ func FromInterface(obj interface{}) (ValueObject, error) {
 		return generic, nil
 	case reflect.Bool:
 		return BooleanLiteral(items.Bool()), nil
+	case reflect.Invalid:
+		return NilLiteral{}, nil
 	default:
 		return nil, fmt.Errorf("unmarshal: unknown type %s", items.Kind())
 	}
@@ -169,7 +182,7 @@ func ShouldConstruct(class, from Class) error {
 		return nil
 	} else if getHash(from) == genericHash {
 		if genericFn := class.Constructors().generic; genericFn != nil {
-			if generic, ok := from.(GenericObject); ok {
+			if generic, ok := from.(*GenericObject); ok {
 				if objectClass, ok := class.(ObjectClass); ok {
 					for key := range generic.Fields() {
 						if target := objectClass.Fields()[key]; target == nil {
@@ -191,8 +204,8 @@ func ShouldConstruct(class, from Class) error {
 		}
 	} else if objectClass, ok := from.(ObjectClass); ok {
 		if objectClass.Fields() != nil {
-			if _, ok := objectClass.(GenericObject); !ok { // to avoid a cycle
-				return ShouldConstruct(class, GenericObject{fields: objectClass.Fields()})
+			if _, ok := objectClass.(*GenericObject); !ok { // to avoid a cycle
+				return ShouldConstruct(class, &GenericObject{fields: objectClass.Fields()})
 			}
 		}
 	}
@@ -207,21 +220,19 @@ func Construct(class Class, from ValueObject) (ValueObject, error) {
 	}
 	if iterable, ok := class.(Iterable); ok {
 		if fromIterable, ok := from.(Iterable); ok {
-			if fn := iterable.ParentType.Constructors().Get(fromIterable.ParentType); fn != nil {
-				iterable.Items = make([]ValueObject, len(fromIterable.Items))
-				for idx, val := range fromIterable.Items {
-					var err error
-					iterable.Items[idx], err = fn(val)
-					if err != nil {
-						return nil, err
-					}
+			iterable.Items = make([]ValueObject, len(fromIterable.Items))
+			for idx, val := range fromIterable.Items {
+				var err error
+				iterable.Items[idx], err = Construct(iterable.ParentType, val)
+				if err != nil {
+					return nil, err
 				}
-				return iterable, nil
 			}
+			return iterable, nil
 		}
 	} else if fn := class.Constructors().Get(from.Class()); fn != nil {
 		return fn(from)
-	} else if generic, ok := from.(GenericObject); ok {
+	} else if generic, ok := from.(*GenericObject); ok {
 		if genericFn := class.Constructors().generic; genericFn != nil {
 			if objectClass, ok := class.(ObjectClass); ok {
 				var err error
@@ -251,7 +262,7 @@ func Construct(class Class, from ValueObject) (ValueObject, error) {
 		}
 	} else if objectClass, ok := from.Class().(ObjectClass); ok {
 		if objectClass.Fields() != nil {
-			if _, ok := objectClass.(GenericObject); !ok { // to avoid a cycle
+			if _, ok := objectClass.(*GenericObject); !ok { // to avoid a cycle
 				data := make(map[string]ValueObject)
 				fields := objectClass.Fields()
 				for key := range fields {
@@ -259,11 +270,11 @@ func Construct(class Class, from ValueObject) (ValueObject, error) {
 						data[key] = value
 					}
 				}
-				return Construct(class, GenericObject{fields, data})
+				return Construct(class, &GenericObject{fields, data})
 			}
 		}
 	}
-	if nilableFrom, ok := from.(NilableObject); ok {
+	if nilableFrom, ok := from.(*NilableObject); ok {
 		if nilableFrom.Object == nil {
 			return nil, fmt.Errorf("cannot construct %s from nil", class.ClassName())
 		}
@@ -345,7 +356,7 @@ func ShouldOperate(token tokens.Token, left, right Class) error {
 	return err
 }
 func Operate(token tokens.Token, left, right ValueObject) (ValueObject, error) {
-	if nilableObject, ok := right.(NilableObject); ok {
+	if nilableObject, ok := right.(*NilableObject); ok {
 		if nilableObject.Object == nil {
 			return nil, fmt.Errorf("cannot operate on nil")
 		}

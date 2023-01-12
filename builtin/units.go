@@ -1,4 +1,4 @@
-package packages
+package builtin
 
 import (
 	"github.com/hntrl/lang/build"
@@ -27,9 +27,6 @@ func (dm Dimension) Fields() map[string]build.Class {
 		"height": build.Float{},
 	}
 }
-func (dm Dimension) Prototype(*build.ValueObject) map[string]build.ValueObject {
-	return nil
-}
 func (dm Dimension) Constructors() build.ConstructorMap {
 	csMap := build.NewConstructorMap()
 	csMap.AddGenericConstructor(dm, func(fields map[string]build.ValueObject) (build.ValueObject, error) {
@@ -54,8 +51,11 @@ func (dm Dimension) Class() build.Class {
 	return dm
 }
 func (dm Dimension) Value() interface{} {
-	return nil
+	return map[string]float64{
+		"width":  float64(dm.Width),
+		"height": float64(dm.Height),
+	}
 }
 func (dm Dimension) Set(key string, obj build.ValueObject) error {
-	return nil
+	return build.CannotSetPropertyError(key, dm)
 }

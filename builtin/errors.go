@@ -1,4 +1,4 @@
-package packages
+package builtin
 
 import (
 	"github.com/hntrl/lang/build"

@@ -74,11 +74,11 @@ type ValueObject interface {
 
 // Indexable represents anything that can be accessed using indices
 // i.e. a[0] or a[0:2]
-type Indexable[T ValueObject] interface {
+type Indexable interface {
 	ValueObject
-	GetIndex(int) (T, error)
-	SetIndex(int, T) (Indexable[T], error)
-	Range(int, int) (Indexable[T], error)
+	GetIndex(int) (ValueObject, error)
+	SetIndex(int, ValueObject) error
+	Range(int, int) (Indexable, error)
 	Len() int
 }
 

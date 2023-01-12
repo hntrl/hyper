@@ -1,0 +1,102 @@
+// example deployment file
+{
+  "nodes": [
+    {
+      "node_id": "stickerspace-Ab83482bbaj",
+      "context": "stickerspace.cart"
+    }, {
+      "node_id": "stickerspace-Njfk83q9mdk",
+      "context": "stickerspace.checkout"
+    }, {
+      "node_id": "stickerspace-hajsB28930m",
+      "context": "stickerspace.customer"
+    }, {
+      "node_id": "stickerspace-81mjdkal83w",
+      "context": "stickerspace.designs"
+    }, {
+      "node_id": "stickerspace-290xniwh2Wj",
+      "context": "stickerspace.fulfillment"
+    }, {
+      "node_id": "stickerspace-ndjfka9082n",
+      "context": "stickerspace.order"
+    }, {
+      "node_id": "stickerspace-928NjKssMa2",
+      "context": "stickerspace.product"
+    }, {
+      "node_id": "stickerspace-mowiu8nNmaS",
+      "context": "payments"
+    }
+  ],
+  "edges": [
+    // stickerspace.cart
+    {
+      "from": "stickerspace-928NjKssMa2", // stickerspace.product
+      "to": "stickerspace-Ab83482bbaj"
+    },
+    {
+      "from": "stickerspace-81mjdkal83w", // stickerspace.designs
+      "to": "stickerspace-Ab83482bbaj"
+    },
+    // stickerspace.checkout
+    {
+      "from": "stickerspace-ndjfka9082n", // stickerspace.order
+      "to": "stickerspace-Njfk83q9mdk"
+    },
+    {
+      "from": "stickerspace-hajsB28930m", // stickerspace.customer
+      "to": "stickerspace-Njfk83q9mdk"
+    },
+    {
+      "from": "stickerspace-290xniwh2Wj", // stickerspace.fulfillment
+      "to": "stickerspace-Njfk83q9mdk"
+    },
+    {
+      "from": "stickerspace-928NjKssMa2", // stickerspace.product
+      "to": "stickerspace-Njfk83q9mdk"
+    },
+    // stickerspace.customer
+    {
+      "from": "stickerspace-ndjfka9082n", // stickerspace.order
+      "to": "stickerspace-hajsB28930m"
+    },
+    {
+      "from": "stickerspace-mowiu8nNmaS", // payments
+      "to": "stickerspace-hajsB28930m"
+    },
+    // stickerspace.designs
+    {
+      "from": "stickerspace-ndjfka9082n", // stickerspace.order
+      "to": "stickerspace-81mjdkal83w"
+    },
+    {
+      "from": "stickerspace-hajsB28930m", // stickerspace.customer
+      "to": "stickerspace-81mjdkal83w"
+    },
+    // stickerspace.fulfillment
+    {
+      "from": "stickerspace-hajsB28930m", // stickerspace.customer
+      "to": "stickerspace-290xniwh2Wj"
+    },
+    {
+      "from": "stickerspace-ndjfka9082n", // stickerspace.order
+      "to": "stickerspace-290xniwh2Wj"
+    },
+    // stickerspace.order
+    {
+      "from": "stickerspace-928NjKssMa2", // stickerspace.product
+      "to": "stickerspace-ndjfka9082n"
+    }, {
+      "from": "stickerspace-hajsB28930m", // stickerspace.customer
+      "to": "stickerspace-ndjfka9082n"
+    }, {
+      "from": "stickerspace-290xniwh2Wj", // stickerspace.fulfillment
+      "to": "stickerspace-ndjfka9082n"
+    }, {
+      "from": "stickerspace-81mjdkal83w", // stickerspace.designs
+      "to": "stickerspace-ndjfka9082n"
+    }, {
+      "from": "stickerspace-mowiu8nNmaS", // payments
+      "to": "stickerspace-ndjfka9082n"
+    }
+  ]
+}

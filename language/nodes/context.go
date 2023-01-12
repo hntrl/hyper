@@ -8,11 +8,11 @@ import (
 	"github.com/hntrl/lang/language/tokens"
 )
 
-// Context :: COMMENT? CONTEXT Selector LCURLY (ContextObject | ContextObjectMethod | ContextMethod)* RCURLY
+// Context :: COMMENT? CONTEXT Selector LCURLY (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)* RCURLY
 type Context struct {
 	pos     tokens.Position
 	Name    string
-	Objects []Node `types:"ContextObject,ContextObjectMethod,ContextMethod"`
+	Objects []Node `types:"ContextObject,ContextObjectMethod,ContextMethod,FunctionExpression"`
 	Comment string
 }
 
@@ -28,6 +28,10 @@ func (c Context) Validate() error {
 			}
 		} else if method, ok := obj.(ContextMethod); ok {
 			if err := method.Validate(); err != nil {
+				return err
+			}
+		} else if fn, ok := obj.(FunctionExpression); ok {
+			if err := fn.Validate(); err != nil {
 				return err
 			}
 		} else {
@@ -80,12 +84,21 @@ func ParseContext(p *parser.Parser) (*Context, error) {
 		p.Unscan()
 		_, tok, _ = p.ScanIgnore(tokens.NEWLINE)
 		if tok == tokens.FUNC {
-			p.Unscan()
-			method, err := ParseContextObjectMethod(p)
-			if err != nil {
-				return nil, err
+			_, tok, _ = p.ScanIgnore(tokens.NEWLINE)
+			p.Rollback(startIndex - 1)
+			if tok == tokens.LPAREN {
+				method, err := ParseContextObjectMethod(p)
+				if err != nil {
+					return nil, err
+				}
+				context.Objects = append(context.Objects, *method)
+			} else {
+				fn, err := ParseFunctionExpression(p)
+				if err != nil {
+					return nil, err
+				}
+				context.Objects = append(context.Objects, *fn)
 			}
-			context.Objects = append(context.Objects, *method)
 		} else {
 			if tok == tokens.PRIVATE {
 				p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
@@ -113,13 +126,13 @@ func ParseContext(p *parser.Parser) (*Context, error) {
 
 // ContextObject :: COMMENT? PRIVATE? IDENT IDENT (EXTENDS Selector)? LCURLY FieldStatement* RCURLY
 type ContextObject struct {
-	pos     tokens.Position
-	Private bool
-	Class   string
-	Name    string
-	Extends *Selector
-	Fields  []FieldStatement
-	Comment string
+	pos       tokens.Position
+	Private   bool
+	Interface string
+	Name      string
+	Extends   *Selector
+	Fields    []FieldStatement
+	Comment   string
 }
 
 func (c ContextObject) Validate() error {
@@ -155,7 +168,7 @@ func ParseContextObject(p *parser.Parser) (*ContextObject, error) {
 	if tok != tokens.IDENT {
 		return nil, ExpectedError(pos, tokens.IDENT, lit)
 	}
-	obj.Class = lit
+	obj.Interface = lit
 	obj.pos = pos
 	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok != tokens.IDENT {
@@ -261,12 +274,12 @@ func ParseContextObjectMethod(p *parser.Parser) (*ContextObjectMethod, error) {
 
 // ContextMethod :: COMMENT? PRIVATE? IDENT IDENT FunctionBlock
 type ContextMethod struct {
-	pos     tokens.Position
-	Private bool
-	Class   string
-	Name    string
-	Block   FunctionBlock
-	Comment string
+	pos       tokens.Position
+	Private   bool
+	Interface string
+	Name      string
+	Block     FunctionBlock
+	Comment   string
 }
 
 func (c ContextMethod) Validate() error {
@@ -292,7 +305,7 @@ func ParseContextMethod(p *parser.Parser) (*ContextMethod, error) {
 	if tok != tokens.IDENT {
 		return nil, ExpectedError(pos, tokens.IDENT, lit)
 	}
-	method.Class = lit
+	method.Interface = lit
 	method.pos = pos
 
 	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)

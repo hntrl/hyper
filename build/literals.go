@@ -24,7 +24,7 @@ func (nl NilLiteral) Value() interface{} {
 	return nil
 }
 func (nl NilLiteral) Set(key string, new ValueObject) error {
-	return fmt.Errorf("cannot set property %s of %s", key, nl.Class().ClassName())
+	return CannotSetPropertyError(key, nl)
 }
 func (nl NilLiteral) Get(key string) Object {
 	return nil
@@ -67,7 +67,7 @@ func (bl BooleanLiteral) Value() interface{} {
 	return bool(bl)
 }
 func (bl BooleanLiteral) Set(key string, new ValueObject) error {
-	return fmt.Errorf("cannot set property %s of %s", key, bl.Class().ClassName())
+	return CannotSetPropertyError(key, bl)
 }
 func (bl BooleanLiteral) Get(key string) Object {
 	return nil
@@ -97,6 +97,24 @@ func (str String) Get(key string) Object {
 	return nil
 }
 
+func (str String) OperatorRules() OperatorRules {
+	rules := NewOperatorRules()
+	rules.AddOperator(String{}, tokens.ADD, func(a, b ValueObject) (ValueObject, error) {
+		return StringLiteral(a.(StringLiteral) + b.(StringLiteral)), nil
+	})
+	return rules
+}
+func (str String) ComparableRules() ComparatorRules {
+	rules := NewComparatorRules()
+	rules.AddComparator(String{}, tokens.EQUALS, func(a, b ValueObject) (ValueObject, error) {
+		return BooleanLiteral(a.Value() == b.Value()), nil
+	})
+	rules.AddComparator(String{}, tokens.NOT_EQUALS, func(a, b ValueObject) (ValueObject, error) {
+		return BooleanLiteral(a.Value() != b.Value()), nil
+	})
+	return rules
+}
+
 type StringLiteral string
 
 func (sl StringLiteral) Class() Class {
@@ -106,7 +124,7 @@ func (sl StringLiteral) Value() interface{} {
 	return string(sl)
 }
 func (sl StringLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, sl)
 }
 func (sl StringLiteral) Get(key string) Object {
 	methods := map[string]Function{
@@ -213,7 +231,8 @@ func numOperatorPredicate(cb func(float64, float64) (ValueObject, error)) Operat
 		return cb(float64(na.(NumberLiteral)), float64(nb.(NumberLiteral)))
 	}
 }
-func addNumOperatorMap(rules OperatorRules, class Class, fn ConstructorFn) {
+func addNumOperatorMap(rules OperatorRules, class Class) {
+	fn := (Number{}).Constructors().Get(Number{})
 	rules.AddOperator(class, tokens.ADD, numOperatorPredicate(func(a, b float64) (ValueObject, error) {
 		return fn(NumberLiteral(a + b))
 	}))
@@ -233,12 +252,12 @@ func addNumOperatorMap(rules OperatorRules, class Class, fn ConstructorFn) {
 		return fn(NumberLiteral(math.Mod(a, b)))
 	}))
 }
-func numOperatorMap(fn ConstructorFn) OperatorRules {
+func numOperatorMap() OperatorRules {
 	rules := NewOperatorRules()
-	addNumOperatorMap(rules, Number{}, fn)
-	addNumOperatorMap(rules, Double{}, fn)
-	addNumOperatorMap(rules, Integer{}, fn)
-	addNumOperatorMap(rules, Float{}, fn)
+	addNumOperatorMap(rules, Number{})
+	addNumOperatorMap(rules, Double{})
+	addNumOperatorMap(rules, Integer{})
+	addNumOperatorMap(rules, Float{})
 	return rules
 }
 
@@ -246,8 +265,7 @@ func (num Number) ComparableRules() ComparatorRules {
 	return numCompareMap()
 }
 func (num Number) OperatorRules() OperatorRules {
-	fn := num.Constructors().Get(Number{})
-	return numOperatorMap(fn)
+	return numOperatorMap()
 }
 
 type NumberLiteral float64
@@ -259,7 +277,7 @@ func (nl NumberLiteral) Value() interface{} {
 	return float64(nl)
 }
 func (nl NumberLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, nl)
 }
 func (nl NumberLiteral) Get(key string) Object {
 	return nil
@@ -286,8 +304,7 @@ func (db Double) ComparableRules() ComparatorRules {
 	return numCompareMap()
 }
 func (db Double) OperatorRules() OperatorRules {
-	fn := db.Constructors().Get(Number{})
-	return numOperatorMap(fn)
+	return numOperatorMap()
 }
 
 func (db Double) Get(key string) Object {
@@ -303,7 +320,7 @@ func (dl DoubleLiteral) Value() interface{} {
 	return float64(dl)
 }
 func (dl DoubleLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, dl)
 }
 func (dl DoubleLiteral) Get(key string) Object {
 	return nil
@@ -335,8 +352,7 @@ func (f Float) ComparableRules() ComparatorRules {
 	return numCompareMap()
 }
 func (f Float) OperatorRules() OperatorRules {
-	fn := f.Constructors().Get(Number{})
-	return numOperatorMap(fn)
+	return numOperatorMap()
 }
 
 func (f Float) Get(key string) Object {
@@ -352,7 +368,7 @@ func (fl FloatLiteral) Value() interface{} {
 	return float64(fl)
 }
 func (fl FloatLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, fl)
 }
 func (fl FloatLiteral) Get(key string) Object {
 	return nil
@@ -361,7 +377,7 @@ func (fl FloatLiteral) Get(key string) Object {
 type Integer struct{}
 
 func (i Integer) ClassName() string {
-	return "Integer"
+	return "Int"
 }
 func (i Integer) Constructors() ConstructorMap {
 	csMap := NewConstructorMap()
@@ -384,8 +400,7 @@ func (i Integer) ComparableRules() ComparatorRules {
 	return numCompareMap()
 }
 func (i Integer) OperatorRules() OperatorRules {
-	fn := i.Constructors().Get(Number{})
-	return numOperatorMap(fn)
+	return numOperatorMap()
 }
 
 func (i Integer) Get(key string) Object {
@@ -401,7 +416,7 @@ func (il IntegerLiteral) Value() interface{} {
 	return int64(il)
 }
 func (il IntegerLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, il)
 }
 func (il IntegerLiteral) Get(key string) Object {
 	return nil
@@ -438,7 +453,7 @@ func (dl DateLiteral) Value() interface{} {
 	return nil
 }
 func (dl DateLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, dl)
 }
 func (dl DateLiteral) Get(key string) Object {
 	return nil
@@ -475,7 +490,7 @@ func (dl DateTimeLiteral) Value() interface{} {
 	return nil
 }
 func (dl DateTimeLiteral) Set(key string, obj ValueObject) error {
-	return nil
+	return CannotSetPropertyError(key, dl)
 }
 func (dl DateTimeLiteral) Get(key string) Object {
 	return nil

@@ -18,14 +18,14 @@ Literal :: STRING
          | FLOAT
   * Value: interface{}
 
-Context :: COMMENT? CONTEXT Selector LCURLY (ContextObject | ContextObjectMethod | ContextMethod)* RCURLY
+Context :: COMMENT? CONTEXT Selector LCURLY (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)* RCURLY
   * Name: string
-  * Objects: [](ContextObject | ContextObjectMethod | ContextMethod)
+  * Objects: [](ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
   * Comment: string
 
 ContextObject :: COMMENT? PRIVATE? IDENT IDENT (EXTENDS Selector)? LCURLY FieldStatement* RCURLY
   * Private: bool
-  * Class: string
+  * Interface: string
   * Name: string
   * Extends: Selector
   * Fields: []FieldStatement
@@ -38,7 +38,7 @@ ContextObjectMethod :: FUNC LPAREN IDENT RPAREN IDENT FunctionBlock
 
 ContextMethod :: COMMENT? PRIVATE? IDENT IDENT FunctionBlock
   * Private: bool
-  * Class: string
+  * Interface: string
   * Name: string
   * Block: FunctionBlock
   * Comment: string
@@ -150,7 +150,8 @@ FunctionBlock :: LPAREN ArgumentList? RPAREN TypeExpression? LCURLY Block RCURLY
   * ReturnType: TypeExpression?
   * Body: Block
 
-FunctionExpression :: FUNC FunctionBlock
+FunctionExpression :: FUNC IDENT FunctionBlock
+  * Name: string
   * Body: Block
 
 Block :: BlockStatement*

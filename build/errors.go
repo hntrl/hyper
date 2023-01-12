@@ -58,9 +58,9 @@ func NoPropertyError(node nodes.Node, resolveChain string, obj Object, key strin
 
 func NotIndexableError(node nodes.Node, resolveChain string, obj Object) ParserError {
 	if valueObj, ok := obj.(ValueObject); ok {
-		return NodeError(node, "%s (%s) is not indexable", obj, valueObj.Class().ClassName())
+		return NodeError(node, "%s (%s) is not indexable", resolveChain, valueObj.Class().ClassName())
 	} else {
-		return NodeError(node, "%s is not indexable", obj)
+		return NodeError(node, "%s is not indexable", resolveChain)
 	}
 }
 

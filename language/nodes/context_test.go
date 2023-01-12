@@ -11,7 +11,7 @@ import (
 // CAN CREATE CONTEXT
 func TestContext(t *testing.T) {
 	err := evaluateTest(TestFixture{
-		lit: "context foo { test bar { } func (foo) bar() { } //comment\nfoo bar() {} }",
+		lit: "context foo { test bar { } func (foo) bar() { } //comment\nfoo bar() {} func baz() { } }",
 		parseFn: func(p *parser.Parser) (Node, error) {
 			return ParseContext(p)
 		},
@@ -20,13 +20,13 @@ func TestContext(t *testing.T) {
 			Name: "foo",
 			Objects: []Node{
 				ContextObject{
-					pos:     tokens.Position{Line: 1, Column: 15},
-					Private: false,
-					Class:   "test",
-					Name:    "bar",
-					Extends: nil,
-					Fields:  []FieldStatement{},
-					Comment: "",
+					pos:       tokens.Position{Line: 1, Column: 15},
+					Private:   false,
+					Interface: "test",
+					Name:      "bar",
+					Extends:   nil,
+					Fields:    []FieldStatement{},
+					Comment:   "",
 				},
 				ContextObjectMethod{
 					pos:    tokens.Position{Line: 1, Column: 25},
@@ -46,10 +46,10 @@ func TestContext(t *testing.T) {
 					},
 				},
 				ContextMethod{
-					pos:     tokens.Position{Line: 1, Column: 41},
-					Private: false,
-					Class:   "foo",
-					Name:    "bar",
+					pos:       tokens.Position{Line: 1, Column: 41},
+					Private:   false,
+					Interface: "foo",
+					Name:      "bar",
 					Block: FunctionBlock{
 						pos: tokens.Position{Line: 1, Column: 51},
 						Arguments: ArgumentList{
@@ -63,6 +63,22 @@ func TestContext(t *testing.T) {
 						},
 					},
 					Comment: "comment",
+				},
+				FunctionExpression{
+					pos:  tokens.Position{Line: 1, Column: 50},
+					Name: "baz",
+					Body: FunctionBlock{
+						pos: tokens.Position{Line: 1, Column: 51},
+						Arguments: ArgumentList{
+							pos:   tokens.Position{Line: 1, Column: 51},
+							Items: make([]Node, 0),
+						},
+						ReturnType: nil,
+						Body: Block{
+							pos:        tokens.Position{Line: 1, Column: 54},
+							Statements: []BlockStatement{},
+						},
+					},
 				},
 			},
 			Comment: "",
@@ -126,13 +142,13 @@ func TestContextObject(t *testing.T) {
 			return ParseContextObject(p)
 		},
 		expects: &ContextObject{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: false,
-			Class:   "test",
-			Name:    "bar",
-			Extends: nil,
-			Fields:  []FieldStatement{},
-			Comment: "",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "test",
+			Name:      "bar",
+			Extends:   nil,
+			Fields:    []FieldStatement{},
+			Comment:   "",
 		},
 		expectsError: nil,
 		endingToken:  tokens.EOF,
@@ -150,11 +166,11 @@ func TestContextObjectWithAllStatements(t *testing.T) {
 			return ParseContextObject(p)
 		},
 		expects: &ContextObject{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: false,
-			Class:   "test",
-			Name:    "bar",
-			Extends: nil,
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "test",
+			Name:      "bar",
+			Extends:   nil,
 			Fields: []FieldStatement{
 				{
 					pos: tokens.Position{Line: 1, Column: 10},
@@ -213,13 +229,13 @@ func TestContextObjectWithComment(t *testing.T) {
 			return ParseContextObject(p)
 		},
 		expects: &ContextObject{
-			pos:     tokens.Position{Line: 2, Column: 1},
-			Private: false,
-			Class:   "test",
-			Name:    "bar",
-			Extends: nil,
-			Fields:  []FieldStatement{},
-			Comment: "comment",
+			pos:       tokens.Position{Line: 2, Column: 1},
+			Private:   false,
+			Interface: "test",
+			Name:      "bar",
+			Extends:   nil,
+			Fields:    []FieldStatement{},
+			Comment:   "comment",
 		},
 		expectsError: nil,
 		endingToken:  tokens.EOF,
@@ -237,13 +253,13 @@ func TestContextObjectPrivate(t *testing.T) {
 			return ParseContextObject(p)
 		},
 		expects: &ContextObject{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: true,
-			Class:   "test",
-			Name:    "bar",
-			Extends: nil,
-			Fields:  []FieldStatement{},
-			Comment: "",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   true,
+			Interface: "test",
+			Name:      "bar",
+			Extends:   nil,
+			Fields:    []FieldStatement{},
+			Comment:   "",
 		},
 		expectsError: nil,
 		endingToken:  tokens.EOF,
@@ -261,10 +277,10 @@ func TestContextObjectExtends(t *testing.T) {
 			return ParseContextObject(p)
 		},
 		expects: &ContextObject{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: false,
-			Class:   "test",
-			Name:    "foo",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "test",
+			Name:      "foo",
 			Extends: &Selector{
 				pos:     tokens.Position{Line: 1, Column: 16},
 				Members: []string{"bar", "baz"},
@@ -337,10 +353,10 @@ func TestContextMethod(t *testing.T) {
 			return ParseContextMethod(p)
 		},
 		expects: &ContextMethod{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: false,
-			Class:   "foo",
-			Name:    "bar",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "foo",
+			Name:      "bar",
 			Block: FunctionBlock{
 				pos: tokens.Position{Line: 1, Column: 6},
 				Arguments: ArgumentList{
@@ -371,10 +387,10 @@ func TestContextMethodPrivate(t *testing.T) {
 			return ParseContextMethod(p)
 		},
 		expects: &ContextMethod{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: true,
-			Class:   "foo",
-			Name:    "bar",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   true,
+			Interface: "foo",
+			Name:      "bar",
 			Block: FunctionBlock{
 				pos: tokens.Position{Line: 1, Column: 11},
 				Arguments: ArgumentList{
@@ -405,10 +421,10 @@ func TestContextMethodComment(t *testing.T) {
 			return ParseContextMethod(p)
 		},
 		expects: &ContextMethod{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: false,
-			Class:   "foo",
-			Name:    "bar",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "foo",
+			Name:      "bar",
 			Block: FunctionBlock{
 				pos: tokens.Position{Line: 1, Column: 6},
 				Arguments: ArgumentList{
@@ -439,10 +455,10 @@ func TestContextMethodPrivateComment(t *testing.T) {
 			return ParseContextMethod(p)
 		},
 		expects: &ContextMethod{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Private: true,
-			Class:   "foo",
-			Name:    "bar",
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   true,
+			Interface: "foo",
+			Name:      "bar",
 			Block: FunctionBlock{
 				pos: tokens.Position{Line: 1, Column: 16},
 				Arguments: ArgumentList{

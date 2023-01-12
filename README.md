@@ -1,6 +1,11 @@
 
 # Unnamed language project
 
+## Project directory
+
+`language/` contains the package responsible for tokenizing and marshalling a buffer into an AST, as well as all the definitions for standard syntax
+`resource/`
+
 ## Tests to write
 
 Interpreter test suite

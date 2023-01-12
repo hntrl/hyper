@@ -51,7 +51,7 @@ func NewFunction(opts FunctionOptions) Function {
 	}
 }
 
-func (st SymbolTable) ResolveFunctionBlock(node nodes.FunctionBlock, proto ValueObject) (*Function, error) {
+func (st *SymbolTable) ResolveFunctionBlock(node nodes.FunctionBlock, proto ValueObject) (*Function, error) {
 	scopeTable := st.Clone()
 	fn := Function{arguments: make([]Class, 0)}
 	if node.Arguments.Items != nil {
@@ -118,7 +118,8 @@ func (st *SymbolTable) ResolveArgumentList(expr nodes.ArgumentList) ([]Class, er
 				return nil, err
 			}
 			args[idx] = obj
-			st.local[arg.Key] = obj
+			castedObject := Object(obj)
+			st.local[arg.Key] = &castedObject
 		case nodes.ArgumentObject:
 			typedObject := Type{fields: make(map[string]Class)}
 			for _, item := range arg.Items {
@@ -127,7 +128,8 @@ func (st *SymbolTable) ResolveArgumentList(expr nodes.ArgumentList) ([]Class, er
 					return nil, err
 				}
 				typedObject.fields[item.Key] = obj
-				st.local[item.Key] = obj
+				castedObject := Object(obj)
+				st.local[item.Key] = &castedObject
 			}
 			args[idx] = typedObject
 		}
@@ -172,14 +174,16 @@ func (st *SymbolTable) ApplyArgumentList(expr nodes.ArgumentList, args []ValueOb
 	for idx, item := range expr.Items {
 		switch argNode := item.(type) {
 		case nodes.ArgumentItem:
-			st.local[argNode.Key] = args[idx]
+			castedObject := Object(args[idx])
+			st.local[argNode.Key] = &castedObject
 		case nodes.ArgumentObject:
 			for _, item := range argNode.Items {
 				propObject := args[idx].Get(item.Key)
 				if propObject == nil {
 					return NodeError(argNode, "object does not have property %s", item.Key)
 				}
-				st.local[item.Key] = propObject
+				castedObject := Object(propObject)
+				st.local[item.Key] = &castedObject
 			}
 		}
 	}
@@ -202,13 +206,15 @@ func (st *SymbolTable) ResolveDeclarationStatement(expr nodes.DeclarationStateme
 		if err != nil {
 			return err
 		}
-		st.local[expr.Name] = obj
+		castedObject := Object(obj)
+		st.local[expr.Name] = &castedObject
 	} else {
 		obj, err := st.ValidateExpression(expr.Init)
 		if err != nil {
 			return err
 		}
-		st.local[expr.Name] = obj
+		castedObject := Object(obj)
+		st.local[expr.Name] = &castedObject
 	}
 	return nil
 }
@@ -240,45 +246,52 @@ func (st *SymbolTable) ResolveAssignmentExpression(expr nodes.AssignmentExpressi
 		return NodeError(expr, "cannot reassign immutable variable %s", expr.Name.Members[0])
 	}
 	parentObject := st.local[expr.Name.Members[0]]
+	if parentObject == nil {
+		return UnknownSelector(expr.Name, expr.Name.Members[0])
+	}
 	originalObject, err := st.ResolveSelector(expr.Name)
 	if err != nil {
 		return err
 	}
-	if object, ok := originalObject.(ValueObject); ok {
-		operand, err := st.ResolveValueObject(expr.Init)
+	object, ok := originalObject.(ValueObject)
+	if !ok {
+		return NodeError(expr, "cannot assign to non-value object")
+	}
+	operand, err := st.ResolveValueObject(expr.Init)
+	if err != nil {
+		return err
+	}
+	if expr.Operator == tokens.ASSIGN {
+		object, err = Construct(object.Class(), operand)
 		if err != nil {
 			return err
 		}
-		if expr.Operator == tokens.ASSIGN {
-			newObject, err := Construct(object.Class(), operand)
-			if err != nil {
-				return err
-			}
-			object = newObject
-		} else {
-			object, err = Operate(getEffectOperator(expr.Operator), object, operand)
-			if err != nil {
-				return NodeError(expr, err.Error())
-			}
+	} else {
+		object, err = Operate(getEffectOperator(expr.Operator), object, operand)
+		if err != nil {
+			return NodeError(expr, err.Error())
 		}
+	}
+
+	if len(expr.Name.Members) > 1 {
 		var eval func(Object, []string) error
 		eval = func(current Object, members []string) error {
-			if valueObj, ok := current.(ValueObject); ok {
-				if len(members) == 1 {
-					return valueObj.Set(members[0], object)
-				}
-				return eval(valueObj.Get(members[0]), members[1:])
-			} else {
+			valueObj, ok := current.(ValueObject)
+			if !ok {
 				return NodeError(expr, "cannot assign to non-value object")
 			}
+			if len(members) == 1 {
+				return valueObj.Set(members[0], object)
+			}
+			return eval(valueObj.Get(members[0]), members[1:])
 		}
-		err = eval(parentObject, expr.Name.Members[1:])
+		err = eval(*parentObject, expr.Name.Members[1:])
 		if err != nil {
 			return err
 		}
-		st.local[expr.Name.Members[0]] = parentObject
+		*st.local[expr.Name.Members[0]] = *parentObject
 	} else {
-		return NodeError(expr, "cannot assign to non-value object")
+		*st.local[expr.Name.Members[0]] = object
 	}
 	return nil
 }
@@ -286,7 +299,11 @@ func (st *SymbolTable) ValidateAssignmentExpression(expr nodes.AssignmentExpress
 	if st.immutable[expr.Name.Members[0]] != nil {
 		return NodeError(expr, "cannot reassign immutable variable %s", expr.Name.Members[0])
 	}
-	currentObject := st.local[expr.Name.Members[0]]
+	parentObject := st.local[expr.Name.Members[0]]
+	if parentObject == nil {
+		return UnknownSelector(expr.Name, expr.Name.Members[0])
+	}
+	currentObject := *parentObject
 	for _, member := range expr.Name.Members[1:] {
 		switch object := currentObject.(type) {
 		case ObjectClass:
@@ -342,25 +359,27 @@ func (st *SymbolTable) ResolveIfStatement(expr nodes.IfStatement) (ValueObject, 
 	if err != nil {
 		return nil, err
 	}
-	if conditionResult, ok := condition.(BooleanLiteral); ok {
-		var returnObject ValueObject
-		if conditionResult {
-			returnObject, err = st.ResolveBlock(expr.Body)
-		} else {
-			switch alt := expr.Alternate.(type) {
-			case nodes.IfStatement:
-				returnObject, err = st.ResolveIfStatement(alt)
-			case nodes.Block:
-				returnObject, err = st.ResolveBlock(alt)
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-		return returnObject, nil
-	} else {
+	conditionResult, ok := condition.(BooleanLiteral)
+	if !ok {
 		return nil, NodeError(expr.Condition, "if condition must be a boolean")
 	}
+	var returnObject ValueObject
+	if conditionResult {
+		scopeTable := st.Clone()
+		returnObject, err = scopeTable.ResolveBlock(expr.Body)
+	} else {
+		switch alt := expr.Alternate.(type) {
+		case nodes.IfStatement:
+			returnObject, err = st.ResolveIfStatement(alt)
+		case nodes.Block:
+			scopeTable := st.Clone()
+			returnObject, err = scopeTable.ResolveBlock(alt)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	return returnObject, nil
 }
 func (st *SymbolTable) ValidateIfStatement(expr nodes.IfStatement) error {
 	condition, err := st.ValidateExpression(expr.Condition)
@@ -370,7 +389,8 @@ func (st *SymbolTable) ValidateIfStatement(expr nodes.IfStatement) error {
 	if _, ok := condition.(Boolean); !ok {
 		return NodeError(expr.Condition, "if condition must be a boolean")
 	}
-	err = st.ValidateBlock(expr.Body)
+	scopeTable := st.Clone()
+	err = scopeTable.ValidateBlock(expr.Body)
 	if err != nil {
 		return err
 	}
@@ -378,7 +398,8 @@ func (st *SymbolTable) ValidateIfStatement(expr nodes.IfStatement) error {
 	case nodes.IfStatement:
 		err = st.ValidateIfStatement(alt)
 	case nodes.Block:
-		err = st.ValidateBlock(alt)
+		scopeTable := st.Clone()
+		err = scopeTable.ValidateBlock(alt)
 	}
 	return err
 }
@@ -409,28 +430,29 @@ loopBlock:
 		if err != nil {
 			return nil, err
 		}
-		if conditionResult, ok := condition.(BooleanLiteral); ok {
-			if !conditionResult {
-				break
-			}
-			for _, stmt := range expr.Body.Statements {
-				switch stmt.Init.(type) {
-				case nodes.ContinueStatement:
-					continue loopBlock
-				case nodes.BreakStatement:
-					break loopBlock
-				default:
-					returnObject, err := st.ResolveBlockStatement(stmt)
-					if err != nil {
-						return nil, err
-					}
-					if returnObject != nil {
-						return returnObject, nil
-					}
+		conditionResult, ok := condition.(BooleanLiteral)
+		if !ok {
+			return nil, NodeError(expr.Condition, "while condition must be a boolean")
+		}
+		if !conditionResult {
+			break
+		}
+		scopeTable := st.Clone()
+		for _, stmt := range expr.Body.Statements {
+			switch stmt.Init.(type) {
+			case nodes.ContinueStatement:
+				continue loopBlock
+			case nodes.BreakStatement:
+				break loopBlock
+			default:
+				returnObject, err := scopeTable.ResolveBlockStatement(stmt)
+				if err != nil {
+					return nil, err
+				}
+				if returnObject != nil {
+					return returnObject, nil
 				}
 			}
-		} else {
-			return nil, NodeError(expr.Condition, "while condition must be a boolean")
 		}
 	}
 	return nil, nil
@@ -443,7 +465,8 @@ func (st *SymbolTable) ValidateWhileStatement(expr nodes.WhileStatement) error {
 	if _, ok := condition.(Boolean); !ok {
 		return NodeError(expr.Condition, "if condition must be a boolean")
 	}
-	err = st.ValidateLoopBlock(expr.Body)
+	scopeTable := st.Clone()
+	err = scopeTable.ValidateLoopBlock(expr.Body)
 	if err != nil {
 		return err
 	}
@@ -458,55 +481,55 @@ func (st *SymbolTable) ValidateWhileStatementReturns(expr nodes.WhileStatement, 
 // --
 
 func (st *SymbolTable) ResolveForStatement(expr nodes.ForStatement) (ValueObject, error) {
-	scopeTable := st.Clone()
 	switch conditionBlock := expr.Condition.(type) {
 	case nodes.ForCondition:
-		if conditionBlock.Init != nil {
-			err := scopeTable.ResolveDeclarationStatement(*conditionBlock.Init, true)
-			if err != nil {
-				return nil, err
-			}
-		}
 	forLoopBlock:
 		for {
+			scopeTable := st.Clone()
+			if conditionBlock.Init != nil {
+				err := scopeTable.ResolveDeclarationStatement(*conditionBlock.Init, true)
+				if err != nil {
+					return nil, err
+				}
+			}
 			condition, err := scopeTable.ResolveValueObject(conditionBlock.Condition)
 			if err != nil {
 				return nil, err
 			}
-			if conditionResult, ok := condition.(BooleanLiteral); ok {
-				if !conditionResult {
-					break
-				}
-				for _, stmt := range expr.Body.Statements {
-					switch stmt.Init.(type) {
-					case nodes.ContinueStatement:
-						continue forLoopBlock
-					case nodes.BreakStatement:
-						break forLoopBlock
-					default:
-						returnObject, err := scopeTable.ResolveBlockStatement(stmt)
-						if err != nil {
-							return nil, err
-						}
-						if returnObject != nil {
-							return returnObject, nil
-						}
-					}
-				}
-				switch updateExpr := conditionBlock.Update.(type) {
-				case nodes.Expression:
-					_, err := scopeTable.ResolveValueObject(updateExpr)
-					if err != nil {
-						return nil, err
-					}
-				case nodes.AssignmentExpression:
-					err := scopeTable.ResolveAssignmentExpression(updateExpr)
-					if err != nil {
-						return nil, err
-					}
-				}
-			} else {
+			conditionResult, ok := condition.(BooleanLiteral)
+			if !ok {
 				return nil, NodeError(conditionBlock.Condition, "for condition must be a boolean")
+			}
+			if !conditionResult {
+				break
+			}
+			for _, stmt := range expr.Body.Statements {
+				switch stmt.Init.(type) {
+				case nodes.ContinueStatement:
+					continue forLoopBlock
+				case nodes.BreakStatement:
+					break forLoopBlock
+				default:
+					returnObject, err := scopeTable.ResolveBlockStatement(stmt)
+					if err != nil {
+						return nil, err
+					}
+					if returnObject != nil {
+						return returnObject, nil
+					}
+				}
+			}
+			switch updateExpr := conditionBlock.Update.(type) {
+			case nodes.Expression:
+				_, err := scopeTable.ResolveValueObject(updateExpr)
+				if err != nil {
+					return nil, err
+				}
+			case nodes.AssignmentExpression:
+				err := scopeTable.ResolveAssignmentExpression(updateExpr)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 	case nodes.RangeCondition:
@@ -514,45 +537,48 @@ func (st *SymbolTable) ResolveForStatement(expr nodes.ForStatement) (ValueObject
 		if err != nil {
 			return nil, err
 		}
-		if iter, ok := targetObject.(Iterable); ok {
-		rangeLoopBlock:
-			for idx, item := range iter.Items {
-				scopeTable.local[conditionBlock.Index] = IntegerLiteral(idx)
-				scopeTable.local[conditionBlock.Value] = item
-				for _, stmt := range expr.Body.Statements {
-					switch stmt.Init.(type) {
-					case nodes.ContinueStatement:
-						continue rangeLoopBlock
-					case nodes.BreakStatement:
-						break rangeLoopBlock
-					default:
-						returnObject, err := scopeTable.ResolveBlockStatement(stmt)
-						if err != nil {
-							return nil, err
-						}
-						if returnObject != nil {
-							return returnObject, nil
-						}
+		iter, ok := targetObject.(Iterable)
+		if !ok {
+			return nil, NotIterableError(conditionBlock.Target, targetObject)
+		}
+	rangeLoopBlock:
+		for idx, item := range iter.Items {
+			scopeTable := st.Clone()
+			castedIndexLiteral := Object(IntegerLiteral(idx))
+			scopeTable.local[conditionBlock.Index] = &castedIndexLiteral
+			castedItemObject := Object(item)
+			scopeTable.local[conditionBlock.Value] = &castedItemObject
+			for _, stmt := range expr.Body.Statements {
+				switch stmt.Init.(type) {
+				case nodes.ContinueStatement:
+					continue rangeLoopBlock
+				case nodes.BreakStatement:
+					break rangeLoopBlock
+				default:
+					returnObject, err := scopeTable.ResolveBlockStatement(stmt)
+					if err != nil {
+						return nil, err
+					}
+					if returnObject != nil {
+						return returnObject, nil
 					}
 				}
 			}
-		} else {
-			return nil, NotIterableError(conditionBlock.Target, targetObject)
 		}
 	}
 	return nil, nil
 }
-func (st *SymbolTable) ValidateForStatement(expr nodes.ForStatement) error {
-	scopeTable := st.Clone()
+
+func (st *SymbolTable) applyForConditionForValidation(expr nodes.ForStatement) error {
 	switch conditionBlock := expr.Condition.(type) {
 	case nodes.ForCondition:
 		if conditionBlock.Init != nil {
-			err := scopeTable.ResolveDeclarationStatement(*conditionBlock.Init, false)
+			err := st.ResolveDeclarationStatement(*conditionBlock.Init, false)
 			if err != nil {
 				return err
 			}
 		}
-		condition, err := scopeTable.ValidateExpression(conditionBlock.Condition)
+		condition, err := st.ValidateExpression(conditionBlock.Condition)
 		if err != nil {
 			return err
 		}
@@ -561,38 +587,49 @@ func (st *SymbolTable) ValidateForStatement(expr nodes.ForStatement) error {
 		}
 		switch updateExpr := conditionBlock.Update.(type) {
 		case nodes.Expression:
-			_, err = scopeTable.ValidateExpression(updateExpr)
+			_, err = st.ValidateExpression(updateExpr)
 			if err != nil {
 				return err
 			}
 		case nodes.AssignmentExpression:
-			err = scopeTable.ValidateAssignmentExpression(updateExpr)
+			err = st.ValidateAssignmentExpression(updateExpr)
 			if err != nil {
 				return err
 			}
 		}
 	case nodes.RangeCondition:
-		targetObject, err := scopeTable.ValidateExpression(conditionBlock.Target)
+		targetObject, err := st.ValidateExpression(conditionBlock.Target)
 		if err != nil {
 			return err
 		}
 		if iter, ok := targetObject.(Iterable); ok {
-			scopeTable.local[conditionBlock.Index] = IntegerLiteral(0)
-			scopeTable.local[conditionBlock.Value] = iter.ParentType
+			castedIndexLiteral := Object(IntegerLiteral(0))
+			st.local[conditionBlock.Index] = &castedIndexLiteral
+			castedItemObject := Object(iter.ParentType)
+			st.local[conditionBlock.Value] = &castedItemObject
 		} else {
 			return NotIterableError(conditionBlock.Target, targetObject)
 		}
 	default:
 		return NodeError(expr.Condition, "invalid for condition")
 	}
-	err := scopeTable.ValidateLoopBlock(expr.Body)
+	return nil
+}
+func (st *SymbolTable) ValidateForStatement(expr nodes.ForStatement) error {
+	scopeTable := st.Clone()
+	err := scopeTable.applyForConditionForValidation(expr)
 	if err != nil {
 		return err
 	}
-	return nil
+	return scopeTable.ValidateLoopBlock(expr.Body)
 }
 func (st *SymbolTable) ValidateForStatementReturns(expr nodes.ForStatement, shouldReturn Class) (bool, error) {
-	return st.ValidateBlockReturns(expr.Body, shouldReturn)
+	scopeTable := st.Clone()
+	err := scopeTable.applyForConditionForValidation(expr)
+	if err != nil {
+		return false, err
+	}
+	return scopeTable.ValidateBlockReturns(expr.Body, shouldReturn)
 }
 
 // --
@@ -605,45 +642,46 @@ func (st *SymbolTable) ResolveSwitchBlock(expr nodes.SwitchBlock) (ValueObject, 
 		return nil, err
 	}
 
-	if _, ok := target.Class().(OperableClass); ok {
-		resolved := false
-		for _, caseBlock := range expr.Statements {
-			if !caseBlock.IsDefault {
-				caseCondition, err := st.ResolveValueObject(*caseBlock.Condition)
+	if _, ok := target.Class().(ComparableClass); !ok {
+		return nil, InoperableSwitchTargetError(expr.Target, target)
+	}
+	resolved := false
+	for _, caseBlock := range expr.Statements {
+		if !caseBlock.IsDefault {
+			caseCondition, err := st.ResolveValueObject(*caseBlock.Condition)
+			if err != nil {
+				return nil, err
+			}
+			evaluated, err := Operate(tokens.EQUALS, target, caseCondition)
+			if err != nil {
+				return nil, NodeError(caseBlock, err.Error())
+			}
+			if conditionResult, ok := evaluated.(BooleanLiteral); ok && bool(conditionResult) {
+				resolved = true
+				scopeTable := st.Clone()
+				returnObject, err := scopeTable.ResolveBlock(caseBlock.Body)
 				if err != nil {
 					return nil, err
 				}
-				evaluated, err := Operate(tokens.EQUALS, target, caseCondition)
+				if returnObject != nil {
+					return returnObject, nil
+				}
+			}
+		}
+	}
+	if !resolved {
+		for _, caseBlock := range expr.Statements {
+			if caseBlock.IsDefault {
+				scopeTable := st.Clone()
+				returnObject, err := scopeTable.ResolveBlock(caseBlock.Body)
 				if err != nil {
-					return nil, NodeError(caseBlock, err.Error())
+					return nil, err
 				}
-				if conditionResult, ok := evaluated.(BooleanLiteral); ok && bool(conditionResult) {
-					resolved = true
-					returnObject, err := st.ResolveBlock(caseBlock.Body)
-					if err != nil {
-						return nil, err
-					}
-					if returnObject != nil {
-						return returnObject, nil
-					}
+				if returnObject != nil {
+					return returnObject, nil
 				}
 			}
 		}
-		if !resolved {
-			for _, caseBlock := range expr.Statements {
-				if caseBlock.IsDefault {
-					returnObject, err := st.ResolveBlock(caseBlock.Body)
-					if err != nil {
-						return nil, err
-					}
-					if returnObject != nil {
-						return returnObject, nil
-					}
-				}
-			}
-		}
-	} else {
-		return nil, InoperableSwitchTargetError(expr.Target, target)
 	}
 	return nil, nil
 }
@@ -652,27 +690,26 @@ func (st *SymbolTable) ValidateSwitchBlock(expr nodes.SwitchBlock) error {
 	if err != nil {
 		return err
 	}
-	if comparable, ok := target.(ComparableClass); ok {
-		hasDefaultBlock := false
-		for _, caseBlock := range expr.Statements {
-			if caseBlock.IsDefault {
-				if hasDefaultBlock {
-					return NodeError(expr, "switch statement can only have one default block")
-				}
-				hasDefaultBlock = true
-			} else {
-				caseCondition, err := st.ValidateExpression(*caseBlock.Condition)
-				if err != nil {
-					return err
-				}
-				if fn := comparable.ComparableRules().Get(caseCondition, tokens.EQUALS); fn == nil {
-					return NodeError(caseBlock.Condition, "switch statement case condition must be comparable to switch target")
-
-				}
+	comparable, ok := target.(ComparableClass)
+	if !ok {
+		return InoperableSwitchTargetError(expr.Target, target)
+	}
+	hasDefaultBlock := false
+	for _, caseBlock := range expr.Statements {
+		if caseBlock.IsDefault {
+			if hasDefaultBlock {
+				return NodeError(expr, "switch statement can only have one default block")
+			}
+			hasDefaultBlock = true
+		} else {
+			caseCondition, err := st.ValidateExpression(*caseBlock.Condition)
+			if err != nil {
+				return err
+			}
+			if fn := comparable.ComparableRules().Get(caseCondition, tokens.EQUALS); fn == nil {
+				return NodeError(caseBlock.Condition, "switch statement case condition must be comparable to switch target")
 			}
 		}
-	} else {
-		return InoperableSwitchTargetError(expr.Target, target)
 	}
 	return nil
 }
