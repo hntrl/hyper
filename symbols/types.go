@@ -1,135 +1,115 @@
-package build
+package symbols
 
 import (
 	"fmt"
 
-	"github.com/hntrl/lang/language/nodes"
 	"github.com/hntrl/lang/language/tokens"
 )
 
-// GenericObject represents a set of propertties without any strict bindings to
-// a type
-type GenericObject struct {
-	fields map[string]Class       `hash:"ignore"`
-	data   map[string]ValueObject `hash:"ignore"`
+type AnyClass struct{}
+
+func (ac AnyClass) ClassName() string {
+	return "any"
+}
+func (ac AnyClass) Constructors() ConstructorMap {
+	return NewConstructorMap()
+}
+func (ac AnyClass) Get(key string) (Object, error) {
+	return nil, nil
 }
 
-var genericHash = getHash(GenericObject{})
+// MapObject represents a set of propertties without any strict bindings to
+// a type
+type MapObject struct {
+	Properties map[string]Class       `hash:"ignore"`
+	Data       map[string]ValueObject `hash:"ignore"`
+}
 
-func NewGenericObject() *GenericObject {
-	return &GenericObject{
-		fields: make(map[string]Class),
-		data:   make(map[string]ValueObject),
+func NewMapObject() *MapObject {
+	return &MapObject{
+		Properties: make(map[string]Class),
+		Data:       make(map[string]ValueObject),
 	}
 }
 
-func (obj GenericObject) ClassName() string {
-	return "GenericObject"
+func (obj MapObject) ClassName() string {
+	return "MapObject"
 }
-func (obj GenericObject) Fields() map[string]Class {
-	return obj.fields
+func (obj MapObject) Fields() map[string]Class {
+	return obj.Properties
 }
-func (obj GenericObject) Constructors() ConstructorMap {
+func (obj MapObject) Constructors() ConstructorMap {
 	return NewConstructorMap()
 }
 
-func (obj GenericObject) Class() Class {
+func (obj MapObject) Class() Class {
 	return obj
 }
-func (obj GenericObject) Value() interface{} {
+func (obj MapObject) Value() interface{} {
 	out := make(map[string]interface{})
-	for key, obj := range obj.data {
+	for key, obj := range obj.Data {
 		out[key] = obj.Value()
 	}
 	return out
 }
-func (obj *GenericObject) Set(key string, new ValueObject) error {
-	if class, ok := obj.fields[key]; ok {
+func (obj *MapObject) Set(key string, new ValueObject) error {
+	if class, ok := obj.Properties[key]; ok {
 		if !ClassEquals(class, new.Class()) {
 			return fmt.Errorf("cannot assign %s to %s", new.Class().ClassName(), class.ClassName())
 		}
 	}
-	obj.data[key] = new
+	obj.Data[key] = new
 	return nil
 }
-func (obj GenericObject) Get(key string) Object {
-	return obj.data[key]
+func (obj MapObject) Get(key string) (Object, error) {
+	return obj.Data[key], nil
 }
 
 // Type represents a structured list of fields that are strongly controlled
 type Type struct {
-	Name    string
-	Private bool
-	Comment string
-	fields  map[string]Class
+	Name       string
+	Private    bool
+	Comment    string
+	Properties map[string]Class
 }
 
 func (t Type) ClassName() string {
 	return t.Name
 }
 func (t Type) Fields() map[string]Class {
-	return t.fields
+	return t.Properties
 }
 func (t Type) Constructors() ConstructorMap {
 	csMap := NewConstructorMap()
 	csMap.AddGenericConstructor(t, func(data map[string]ValueObject) (ValueObject, error) {
 		obj := TypeObject{t, data}
-		for key, class := range t.fields {
-			if nilableClass, ok := class.(NilableObject); ok {
-				nilableClass.Object = data[key]
-				obj.fields[key] = &nilableClass
+		for key, class := range t.Properties {
+			if nilableProp, ok := class.(*NilableObject); ok {
+				nilable := *nilableProp
+				if nilableObject, ok := data[key].(*NilableObject); ok {
+					nilable.Object = nilableObject.Object
+				} else {
+					nilable.Object = data[key]
+				}
+				obj.Data[key] = &nilable
 			}
 		}
 		return &obj, nil
 	})
 	return csMap
 }
-func (t Type) Get(key string) Object {
-	return nil
+func (t Type) Get(key string) (Object, error) {
+	return nil, nil
 }
 
-func (t Type) ObjectClassFromNode(ctx *Context, node nodes.ContextObject) (Class, error) {
-	t.Name = node.Name
-	t.Private = node.Private
-	t.Comment = node.Comment
-
-	t.fields = make(map[string]Class)
-
-	if node.Extends != nil {
-		extendsType := nodes.TypeExpression{IsArray: false, IsOptional: false, Selector: *node.Extends}
-		class, err := ctx.EvaluateTypeExpression(extendsType)
-		if err != nil {
-			return nil, err
-		}
-		objectClass, ok := class.(ObjectClass)
-		if !ok {
-			return nil, fmt.Errorf("cannot extend %s", class.ClassName())
-		}
-		if fields := objectClass.Fields(); fields != nil {
-			for k, v := range fields {
-				t.fields[k] = v
-			}
-		}
-	}
-	for _, item := range node.Fields {
-		typeExpr, ok := item.Init.(nodes.TypeStatement)
-		if !ok {
-			return nil, fmt.Errorf("expected type statement")
-		}
-		obj, err := ctx.EvaluateTypeExpression(typeExpr.Init)
-		if err != nil {
-			return nil, err
-		}
-		t.fields[typeExpr.Name] = obj
-	}
-
+func (t Type) Export() (Object, error) {
 	return t, nil
 }
 
 // TypeObject represents an instance of a Type
 type TypeObject struct {
 	ParentType Type
-	fields     map[string]ValueObject
+	Data       map[string]ValueObject
 }
 
 func (to TypeObject) Class() Class {
@@ -137,17 +117,17 @@ func (to TypeObject) Class() Class {
 }
 func (to TypeObject) Value() interface{} {
 	out := make(map[string]interface{})
-	for key, obj := range to.fields {
+	for key, obj := range to.Data {
 		out[key] = obj.Value()
 	}
 	return out
 }
 func (to *TypeObject) Set(key string, obj ValueObject) error {
-	to.fields[key] = obj
+	to.Data[key] = obj
 	return nil
 }
-func (to TypeObject) Get(key string) Object {
-	return to.fields[key]
+func (to TypeObject) Get(key string) (Object, error) {
+	return to.Data[key], nil
 }
 
 type Iterable struct {
@@ -166,8 +146,14 @@ func (it Iterable) ClassName() string {
 	return fmt.Sprintf("[]%s", it.ParentType.ClassName())
 }
 func (it Iterable) Constructors() ConstructorMap {
-	// todo: implement me
-	return NewConstructorMap()
+	csMap := NewConstructorMap()
+	csMap.AddConstructor(it, func(obj ValueObject) (ValueObject, error) {
+		iter := obj.(Iterable)
+		newIter := NewIterable(it.ParentType, len(iter.Items))
+		copy(newIter.Items, iter.Items)
+		return obj, nil
+	})
+	return csMap
 }
 
 func (it Iterable) Class() Class {
@@ -183,7 +169,7 @@ func (it Iterable) Value() interface{} {
 func (it Iterable) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, it)
 }
-func (it Iterable) Get(key string) Object {
+func (it Iterable) Get(key string) (Object, error) {
 	methods := map[string]Object{
 		"append": NewFunction(FunctionOptions{
 			Arguments: []Class{
@@ -191,12 +177,14 @@ func (it Iterable) Get(key string) Object {
 			},
 			Returns: it,
 			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				it.Items = append(it.Items, args[0])
-				return it, nil
+				return Iterable{
+					ParentType: it.ParentType,
+					Items:      append(it.Items, args[0]),
+				}, nil
 			},
 		}),
 	}
-	return methods[key]
+	return methods[key], nil
 }
 
 func (it Iterable) GetIndex(index int) (ValueObject, error) {
@@ -222,6 +210,47 @@ func (it Iterable) Len() int {
 	return len(it.Items)
 }
 
+type PartialObject struct {
+	ClassObject ObjectClass
+	Object      ValueObject `hash:"ignore"`
+}
+
+func NewPartialObject(c ObjectClass) *PartialObject {
+	return &PartialObject{ClassObject: c}
+}
+
+func (po PartialObject) ClassName() string {
+	return fmt.Sprintf("Partial<%s>", po.ClassObject.ClassName())
+}
+func (po PartialObject) Fields() map[string]Class {
+	out := make(map[string]Class)
+	for k, v := range po.ClassObject.Fields() {
+		if val, ok := v.(*NilableObject); ok {
+			nilable := *val
+			out[k] = &nilable
+		} else {
+			out[k] = &NilableObject{ClassObject: v}
+		}
+	}
+	return out
+}
+func (po PartialObject) Constructors() ConstructorMap {
+	return po.ClassObject.Constructors()
+}
+
+func (po PartialObject) Class() Class {
+	return po
+}
+func (po PartialObject) Value() interface{} {
+	return po.Object.Value()
+}
+func (po *PartialObject) Set(key string, obj ValueObject) error {
+	return po.Object.Set(key, obj)
+}
+func (po PartialObject) Get(key string) (Object, error) {
+	return po.Object.Get(key)
+}
+
 // TODO: Nilable types should not satisfy it's not nilable type. (i.e. String? should not satisfy String)
 
 type NilableObject struct {
@@ -229,8 +258,8 @@ type NilableObject struct {
 	Object      ValueObject `hash:"ignore"`
 }
 
-func NewOptionalClass(c Class) NilableObject {
-	return NilableObject{ClassObject: c}
+func NewOptionalClass(c Class) *NilableObject {
+	return &NilableObject{ClassObject: c}
 }
 
 func (no NilableObject) ClassName() string {
@@ -238,11 +267,7 @@ func (no NilableObject) ClassName() string {
 }
 func (no NilableObject) Fields() map[string]Class {
 	if objectClass, ok := no.ClassObject.(ObjectClass); ok {
-		out := make(map[string]Class)
-		for k, v := range objectClass.Fields() {
-			out[k] = NilableObject{ClassObject: v}
-		}
-		return out
+		return objectClass.Fields()
 	}
 	return nil
 }
@@ -296,9 +321,9 @@ func (no *NilableObject) Set(key string, obj ValueObject) error {
 	}
 	return no.Object.Set(key, obj)
 }
-func (no NilableObject) Get(key string) Object {
+func (no NilableObject) Get(key string) (Object, error) {
 	if no.Object == nil {
-		return nil
+		return nil, nil
 	}
 	return no.Object.Get(key)
 }
@@ -309,10 +334,12 @@ func (no NilableObject) ComparableRules() ComparatorRules {
 		rules = comparable.ComparableRules()
 	}
 	rules.AddComparator(NilLiteral{}, tokens.EQUALS, func(a, b ValueObject) (ValueObject, error) {
-		return BooleanLiteral(a == nil), nil
+		object := a.(*NilableObject)
+		return BooleanLiteral(object.Object == nil), nil
 	})
 	rules.AddComparator(NilLiteral{}, tokens.NOT_EQUALS, func(a, b ValueObject) (ValueObject, error) {
-		return BooleanLiteral(a != nil), nil
+		object := a.(*NilableObject)
+		return BooleanLiteral(object.Object != nil), nil
 	})
 	return rules
 }
@@ -324,8 +351,23 @@ func (no NilableObject) OperatorRules() OperatorRules {
 }
 
 type Error struct {
-	Name    string
-	Message string
+	Name    string      `json:"name"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data"`
+}
+
+func ErrorFromMapObject(obj *MapObject) Error {
+	err := Error{}
+	if name, ok := obj.Data["name"]; ok {
+		err.Name = fmt.Sprintf("%s", name.Value())
+	}
+	if message, ok := obj.Data["message"]; ok {
+		err.Message = fmt.Sprintf("%s", message.Value())
+	}
+	if data, ok := obj.Data["data"]; ok {
+		err.Data = data
+	}
+	return err
 }
 
 func (err Error) ClassName() string {
@@ -344,10 +386,14 @@ func (err Error) Value() interface{} {
 func (err Error) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, err)
 }
-func (err Error) Get(key string) Object {
-	return nil
+func (err Error) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 func (err Error) Error() string {
-	return fmt.Sprintf("%s: %s", err.Name, err.Message)
+	if err.Data == nil {
+		return fmt.Sprintf("%s: %s", err.Name, err.Message)
+	} else {
+		return fmt.Sprintf("%s: %s %s", err.Name, err.Message, err.Data)
+	}
 }

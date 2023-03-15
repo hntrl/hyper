@@ -1,14 +1,18 @@
 package builtin
 
-import (
-	"github.com/hntrl/lang/build"
-)
+import "github.com/hntrl/lang/symbols"
 
-func RegisterDefaults(ctx *build.BuildContext) {
-	// Register the default packages
-	ctx.RegisterPackage("math", MathPackage{})
-	ctx.RegisterPackage("errors", ErrorsPackage{})
-	ctx.RegisterPackage("units", UnitsPackage{})
-	ctx.RegisterPackage("request", RequestPackage{})
-	ctx.RegisterPackage("mime", MimeTypesPackage{})
+var Packages = map[string]symbols.Object{
+	"math":    MathPackage{},
+	"errors":  ErrorsPackage{},
+	"units":   UnitsPackage{},
+	"request": RequestPackage{},
+	"mime":    MimeTypesPackage{},
+}
+
+var Classes = map[string]symbols.Class{
+	"MimeType":      MimeType{},
+	"RequestConfig": RequestConfig{},
+	"HTTPResponse":  HTTPResponse{},
+	"Dimension":     Dimension{},
 }

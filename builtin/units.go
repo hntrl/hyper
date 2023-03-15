@@ -1,53 +1,53 @@
 package builtin
 
 import (
-	"github.com/hntrl/lang/build"
+	"github.com/hntrl/lang/symbols"
 )
 
 type UnitsPackage struct{}
 
-func (up UnitsPackage) Get(key string) build.Object {
-	objects := map[string]build.Object{
+func (up UnitsPackage) Get(key string) (symbols.Object, error) {
+	objects := map[string]symbols.Object{
 		"Dimension": Dimension{},
 	}
-	return objects[key]
+	return objects[key], nil
 }
 
 type Dimension struct {
-	Width  build.FloatLiteral
-	Height build.FloatLiteral
+	Width  symbols.FloatLiteral
+	Height symbols.FloatLiteral
 }
 
 func (dm Dimension) ClassName() string {
 	return "Dimension"
 }
-func (dm Dimension) Fields() map[string]build.Class {
-	return map[string]build.Class{
-		"width":  build.Float{},
-		"height": build.Float{},
+func (dm Dimension) Fields() map[string]symbols.Class {
+	return map[string]symbols.Class{
+		"width":  symbols.Float{},
+		"height": symbols.Float{},
 	}
 }
-func (dm Dimension) Constructors() build.ConstructorMap {
-	csMap := build.NewConstructorMap()
-	csMap.AddGenericConstructor(dm, func(fields map[string]build.ValueObject) (build.ValueObject, error) {
+func (dm Dimension) Constructors() symbols.ConstructorMap {
+	csMap := symbols.NewConstructorMap()
+	csMap.AddGenericConstructor(dm, func(fields map[string]symbols.ValueObject) (symbols.ValueObject, error) {
 		return Dimension{
-			Width:  fields["width"].(build.FloatLiteral),
-			Height: fields["height"].(build.FloatLiteral),
+			Width:  fields["width"].(symbols.FloatLiteral),
+			Height: fields["height"].(symbols.FloatLiteral),
 		}, nil
 	})
 	return csMap
 }
-func (dm Dimension) Get(key string) build.Object {
+func (dm Dimension) Get(key string) (symbols.Object, error) {
 	switch key {
 	case "width":
-		return dm.Width
+		return dm.Width, nil
 	case "height":
-		return dm.Height
+		return dm.Height, nil
 	}
-	return nil
+	return nil, nil
 }
 
-func (dm Dimension) Class() build.Class {
+func (dm Dimension) Class() symbols.Class {
 	return dm
 }
 func (dm Dimension) Value() interface{} {
@@ -56,6 +56,6 @@ func (dm Dimension) Value() interface{} {
 		"height": float64(dm.Height),
 	}
 }
-func (dm Dimension) Set(key string, obj build.ValueObject) error {
-	return build.CannotSetPropertyError(key, dm)
+func (dm Dimension) Set(key string, obj symbols.ValueObject) error {
+	return symbols.CannotSetPropertyError(key, dm)
 }

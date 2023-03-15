@@ -1,9 +1,10 @@
-package build
+package symbols
 
 import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/hntrl/lang/language/tokens"
 )
@@ -26,8 +27,8 @@ func (nl NilLiteral) Value() interface{} {
 func (nl NilLiteral) Set(key string, new ValueObject) error {
 	return CannotSetPropertyError(key, nl)
 }
-func (nl NilLiteral) Get(key string) Object {
-	return nil
+func (nl NilLiteral) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type Boolean struct{}
@@ -54,8 +55,8 @@ func (bl Boolean) ComparableRules() ComparatorRules {
 	return rules
 }
 
-func (bl Boolean) Get(key string) Object {
-	return nil
+func (bl Boolean) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type BooleanLiteral bool
@@ -69,8 +70,8 @@ func (bl BooleanLiteral) Value() interface{} {
 func (bl BooleanLiteral) Set(key string, new ValueObject) error {
 	return CannotSetPropertyError(key, bl)
 }
-func (bl BooleanLiteral) Get(key string) Object {
-	return nil
+func (bl BooleanLiteral) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type String struct{}
@@ -93,8 +94,8 @@ func (str String) Constructors() ConstructorMap {
 	csMap.AddConstructor(Boolean{}, numericConstructor)
 	return csMap
 }
-func (str String) Get(key string) Object {
-	return nil
+func (str String) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 func (str String) OperatorRules() OperatorRules {
@@ -126,7 +127,7 @@ func (sl StringLiteral) Value() interface{} {
 func (sl StringLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, sl)
 }
-func (sl StringLiteral) Get(key string) Object {
+func (sl StringLiteral) Get(key string) (Object, error) {
 	methods := map[string]Function{
 		"lower": NewFunction(FunctionOptions{
 			Returns: String{},
@@ -141,7 +142,7 @@ func (sl StringLiteral) Get(key string) Object {
 			},
 		}),
 	}
-	return methods[key]
+	return methods[key], nil
 }
 
 type Number struct{}
@@ -153,10 +154,14 @@ func (num Number) Constructors() ConstructorMap {
 	csMap := NewConstructorMap()
 	csMap.AddConstructor(Number{}, func(obj ValueObject) (ValueObject, error) {
 		val := obj.Value()
-		if intNum, ok := val.(int64); ok {
-			val = float64(intNum)
+		switch num := val.(type) {
+		case int64:
+			return NumberLiteral(float64(num)), nil
+		case float64:
+			return NumberLiteral(num), nil
+		default:
+			return nil, fmt.Errorf("cannot construct number from %T", num)
 		}
-		return NumberLiteral(val.(float64)), nil
 	})
 	csMap.AddConstructor(Double{}, func(obj ValueObject) (ValueObject, error) {
 		return NumberLiteral(obj.(DoubleLiteral)), nil
@@ -169,8 +174,8 @@ func (num Number) Constructors() ConstructorMap {
 	})
 	return csMap
 }
-func (num Number) Get(key string) Object {
-	return nil
+func (num Number) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 func numComparePredicate(cb func(float64, float64) bool) func(ValueObject, ValueObject) (ValueObject, error) {
@@ -279,8 +284,8 @@ func (nl NumberLiteral) Value() interface{} {
 func (nl NumberLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, nl)
 }
-func (nl NumberLiteral) Get(key string) Object {
-	return nil
+func (nl NumberLiteral) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type Double struct{}
@@ -291,7 +296,14 @@ func (db Double) ClassName() string {
 func (db Double) Constructors() ConstructorMap {
 	csMap := NewConstructorMap()
 	numericConstructor := func(obj ValueObject) (ValueObject, error) {
-		return DoubleLiteral(math.Ceil(obj.Value().(float64)*100) / 100), nil
+		var val float64
+		switch objValue := obj.Value().(type) {
+		case float64:
+			val = objValue
+		case int64:
+			val = float64(objValue)
+		}
+		return DoubleLiteral(math.Ceil(val*100) / 100), nil
 	}
 	csMap.AddConstructor(Number{}, numericConstructor)
 	csMap.AddConstructor(Double{}, numericConstructor)
@@ -307,8 +319,8 @@ func (db Double) OperatorRules() OperatorRules {
 	return numOperatorMap()
 }
 
-func (db Double) Get(key string) Object {
-	return nil
+func (db Double) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type DoubleLiteral float64
@@ -322,8 +334,8 @@ func (dl DoubleLiteral) Value() interface{} {
 func (dl DoubleLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, dl)
 }
-func (dl DoubleLiteral) Get(key string) Object {
-	return nil
+func (dl DoubleLiteral) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type Float struct{}
@@ -355,8 +367,8 @@ func (f Float) OperatorRules() OperatorRules {
 	return numOperatorMap()
 }
 
-func (f Float) Get(key string) Object {
-	return nil
+func (f Float) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type FloatLiteral float64
@@ -370,8 +382,8 @@ func (fl FloatLiteral) Value() interface{} {
 func (fl FloatLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, fl)
 }
-func (fl FloatLiteral) Get(key string) Object {
-	return nil
+func (fl FloatLiteral) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type Integer struct{}
@@ -403,8 +415,8 @@ func (i Integer) OperatorRules() OperatorRules {
 	return numOperatorMap()
 }
 
-func (i Integer) Get(key string) Object {
-	return nil
+func (i Integer) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type IntegerLiteral int64
@@ -418,8 +430,8 @@ func (il IntegerLiteral) Value() interface{} {
 func (il IntegerLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, il)
 }
-func (il IntegerLiteral) Get(key string) Object {
-	return nil
+func (il IntegerLiteral) Get(key string) (Object, error) {
+	return nil, nil
 }
 
 type Date struct{}
@@ -428,35 +440,51 @@ func (d Date) ClassName() string {
 	return "Date"
 }
 func (d Date) Constructors() ConstructorMap {
-	return NewConstructorMap()
+	csMap := NewConstructorMap()
+	csMap.AddConstructor(Date{}, func(obj ValueObject) (ValueObject, error) {
+		return DateLiteral{}, nil
+	})
+	return csMap
 }
 
-func (d Date) Get(key string) Object {
+func (d Date) Get(key string) (Object, error) {
 	switch key {
 	case "now":
 		return NewFunction(FunctionOptions{
 			Returns: Date{},
 			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				return DateLiteral{}, nil
+				return DateLiteral{t: time.Now()}, nil
 			},
-		})
+		}), nil
 	}
-	return nil
+	return nil, nil
 }
 
-type DateLiteral struct{}
+type DateLiteral struct {
+	t time.Time
+}
 
 func (dl DateLiteral) Class() Class {
 	return Date{}
 }
 func (dl DateLiteral) Value() interface{} {
-	return nil
+	return dl.t
 }
 func (dl DateLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, dl)
 }
-func (dl DateLiteral) Get(key string) Object {
-	return nil
+func (dl DateLiteral) Get(key string) (Object, error) {
+	methods := map[string]Object{
+		"format": NewFunction(FunctionOptions{
+			Arguments: []Class{String{}},
+			Returns:   String{},
+			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+				fmt := args[0].(StringLiteral)
+				return StringLiteral(dl.t.Format(string(fmt))), nil
+			},
+		}),
+	}
+	return methods[key], nil
 }
 
 type DateTime struct{}
@@ -465,33 +493,52 @@ func (d DateTime) ClassName() string {
 	return "DateTime"
 }
 func (d DateTime) Constructors() ConstructorMap {
-	return NewConstructorMap()
+	csMap := NewConstructorMap()
+	csMap.AddConstructor(DateTime{}, func(obj ValueObject) (ValueObject, error) {
+		time := obj.(DateTimeLiteral)
+		return DateTimeLiteral{
+			t: time.t,
+		}, nil
+	})
+	return csMap
 }
 
-func (d DateTime) Get(key string) Object {
+func (d DateTime) Get(key string) (Object, error) {
 	switch key {
 	case "now":
 		return NewFunction(FunctionOptions{
 			Returns: DateTime{},
 			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				return DateTimeLiteral{}, nil
+				return DateTimeLiteral{t: time.Now()}, nil
 			},
-		})
+		}), nil
 	}
-	return nil
+	return nil, nil
 }
 
-type DateTimeLiteral struct{}
+type DateTimeLiteral struct {
+	t time.Time
+}
 
 func (dl DateTimeLiteral) Class() Class {
 	return DateTime{}
 }
 func (dl DateTimeLiteral) Value() interface{} {
-	return nil
+	return dl.t
 }
 func (dl DateTimeLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, dl)
 }
-func (dl DateTimeLiteral) Get(key string) Object {
-	return nil
+func (dl DateTimeLiteral) Get(key string) (Object, error) {
+	methods := map[string]Object{
+		"format": NewFunction(FunctionOptions{
+			Arguments: []Class{String{}},
+			Returns:   String{},
+			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+				fmt := args[0].(StringLiteral)
+				return StringLiteral(dl.t.Format(string(fmt))), nil
+			},
+		}),
+	}
+	return methods[key], nil
 }

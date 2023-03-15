@@ -9,9 +9,12 @@ import (
 )
 
 // TypeExpression :: (LSQUARE RSQUARE)? Selector QUESTION?
+//
+//	| (LSQUARE RSQUARE)? PARTIAL LT Selector GT QUESTION?
 type TypeExpression struct {
 	pos        tokens.Position
 	IsArray    bool
+	IsPartial  bool
 	IsOptional bool
 	Selector   Selector
 }
@@ -41,11 +44,29 @@ func ParseTypeExpression(p *parser.Parser) (*TypeExpression, error) {
 		p.Unscan()
 	}
 
+	_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok == tokens.PARTIAL {
+		te.IsPartial = true
+		_, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		if tok != tokens.LESS {
+			return nil, ExpectedError(pos, tokens.LESS, lit)
+		}
+	} else {
+		p.Rollback(p.Index() - 1)
+	}
+
 	sel, err := ParseSelector(p)
 	if err != nil {
 		return nil, err
 	}
 	te.Selector = *sel
+
+	if te.IsPartial {
+		_, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		if tok != tokens.GREATER {
+			return nil, ExpectedError(pos, tokens.GREATER, lit)
+		}
+	}
 
 	_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok == tokens.QUESTION {

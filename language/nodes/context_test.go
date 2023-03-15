@@ -11,72 +11,91 @@ import (
 // CAN CREATE CONTEXT
 func TestContext(t *testing.T) {
 	err := evaluateTest(TestFixture{
-		lit: "context foo { test bar { } func (foo) bar() { } //comment\nfoo bar() {} func baz() { } }",
+		lit: "context foo { use \"test\" test bar { } func (foo) bar() { } //comment\nfoo bar() {} func baz() { } }",
 		parseFn: func(p *parser.Parser) (Node, error) {
 			return ParseContext(p)
 		},
 		expects: &Context{
 			pos:  tokens.Position{Line: 1, Column: 9},
 			Name: "foo",
-			Objects: []Node{
-				ContextObject{
-					pos:       tokens.Position{Line: 1, Column: 15},
-					Private:   false,
-					Interface: "test",
-					Name:      "bar",
-					Extends:   nil,
-					Fields:    []FieldStatement{},
-					Comment:   "",
+			Remotes: []UseStatement{
+				{
+					pos:    tokens.Position{Line: 1, Column: 15},
+					Source: "test",
 				},
-				ContextObjectMethod{
-					pos:    tokens.Position{Line: 1, Column: 25},
-					Target: "foo",
-					Name:   "bar",
-					Block: FunctionBlock{
-						pos: tokens.Position{Line: 1, Column: 35},
-						Arguments: ArgumentList{
-							pos:   tokens.Position{Line: 1, Column: 35},
-							Items: make([]Node, 0),
-						},
-						ReturnType: nil,
-						Body: Block{
-							pos:        tokens.Position{Line: 1, Column: 38},
-							Statements: []BlockStatement{},
+			},
+			Items: []ContextItem{
+				{
+					ContextObject{
+						pos:       tokens.Position{Line: 1, Column: 15},
+						Private:   false,
+						Interface: "test",
+						Name:      "bar",
+						Extends:   nil,
+						Fields:    []FieldStatement{},
+						Comment:   "",
+					},
+				},
+				{
+					ContextObjectMethod{
+						pos:    tokens.Position{Line: 1, Column: 25},
+						Target: "foo",
+						Name:   "bar",
+						Block: FunctionBlock{
+							Parameters: FunctionParameters{
+								Arguments: ArgumentList{
+									pos:   tokens.Position{Line: 1, Column: 35},
+									Items: make([]Node, 0),
+								},
+								ReturnType: nil,
+							},
+							Body: Block{
+								pos:        tokens.Position{Line: 1, Column: 38},
+								Statements: []BlockStatement{},
+							},
 						},
 					},
 				},
-				ContextMethod{
-					pos:       tokens.Position{Line: 1, Column: 41},
-					Private:   false,
-					Interface: "foo",
-					Name:      "bar",
-					Block: FunctionBlock{
-						pos: tokens.Position{Line: 1, Column: 51},
-						Arguments: ArgumentList{
-							pos:   tokens.Position{Line: 1, Column: 51},
-							Items: make([]Node, 0),
+				{
+					ContextMethod{
+						pos:       tokens.Position{Line: 1, Column: 41},
+						Private:   false,
+						Interface: "foo",
+						Name:      "bar",
+						Block: FunctionBlock{
+							Parameters: FunctionParameters{
+								pos: tokens.Position{Line: 1, Column: 51},
+								Arguments: ArgumentList{
+									pos:   tokens.Position{Line: 1, Column: 51},
+									Items: make([]Node, 0),
+								},
+								ReturnType: nil,
+							},
+							Body: Block{
+								pos:        tokens.Position{Line: 1, Column: 54},
+								Statements: []BlockStatement{},
+							},
 						},
-						ReturnType: nil,
-						Body: Block{
-							pos:        tokens.Position{Line: 1, Column: 54},
-							Statements: []BlockStatement{},
-						},
+						Comment: "comment",
 					},
-					Comment: "comment",
 				},
-				FunctionExpression{
-					pos:  tokens.Position{Line: 1, Column: 50},
-					Name: "baz",
-					Body: FunctionBlock{
-						pos: tokens.Position{Line: 1, Column: 51},
-						Arguments: ArgumentList{
-							pos:   tokens.Position{Line: 1, Column: 51},
-							Items: make([]Node, 0),
-						},
-						ReturnType: nil,
-						Body: Block{
-							pos:        tokens.Position{Line: 1, Column: 54},
-							Statements: []BlockStatement{},
+				{
+					FunctionExpression{
+						pos:  tokens.Position{Line: 1, Column: 50},
+						Name: "baz",
+						Body: FunctionBlock{
+							Parameters: FunctionParameters{
+								pos: tokens.Position{Line: 1, Column: 51},
+								Arguments: ArgumentList{
+									pos:   tokens.Position{Line: 1, Column: 51},
+									Items: make([]Node, 0),
+								},
+								ReturnType: nil,
+							},
+							Body: Block{
+								pos:        tokens.Position{Line: 1, Column: 54},
+								Statements: []BlockStatement{},
+							},
 						},
 					},
 				},
@@ -101,7 +120,8 @@ func TestContextNoObjects(t *testing.T) {
 		expects: &Context{
 			pos:     tokens.Position{Line: 1, Column: 1},
 			Name:    "foo",
-			Objects: make([]Node, 0),
+			Remotes: make([]UseStatement, 0),
+			Items:   make([]ContextItem, 0),
 			Comment: "",
 		},
 		expectsError: nil,
@@ -122,7 +142,8 @@ func TestContextWithComment(t *testing.T) {
 		expects: &Context{
 			pos:     tokens.Position{Line: 1, Column: 1},
 			Name:    "foo",
-			Objects: make([]Node, 0),
+			Remotes: make([]UseStatement, 0),
+			Items:   make([]ContextItem, 0),
 			Comment: "comment",
 		},
 		expectsError: nil,
@@ -202,6 +223,7 @@ func TestContextObjectWithAllStatements(t *testing.T) {
 						Init: TypeExpression{
 							pos:        tokens.Position{Line: 1, Column: 34},
 							IsArray:    false,
+							IsPartial:  false,
 							IsOptional: false,
 							Selector: Selector{
 								pos:     tokens.Position{Line: 1, Column: 34},
@@ -309,12 +331,14 @@ func TestContextObjectMethod(t *testing.T) {
 			Target: "foo",
 			Name:   "bar",
 			Block: FunctionBlock{
-				pos: tokens.Position{Line: 1, Column: 13},
-				Arguments: ArgumentList{
-					pos:   tokens.Position{Line: 1, Column: 13},
-					Items: make([]Node, 0),
+				Parameters: FunctionParameters{
+					pos: tokens.Position{Line: 1, Column: 13},
+					Arguments: ArgumentList{
+						pos:   tokens.Position{Line: 1, Column: 13},
+						Items: make([]Node, 0),
+					},
+					ReturnType: nil,
 				},
-				ReturnType: nil,
 				Body: Block{
 					pos:        tokens.Position{Line: 1, Column: 18},
 					Statements: []BlockStatement{},
@@ -358,12 +382,14 @@ func TestContextMethod(t *testing.T) {
 			Interface: "foo",
 			Name:      "bar",
 			Block: FunctionBlock{
-				pos: tokens.Position{Line: 1, Column: 6},
-				Arguments: ArgumentList{
-					pos:   tokens.Position{Line: 1, Column: 6},
-					Items: make([]Node, 0),
+				Parameters: FunctionParameters{
+					pos: tokens.Position{Line: 1, Column: 6},
+					Arguments: ArgumentList{
+						pos:   tokens.Position{Line: 1, Column: 6},
+						Items: make([]Node, 0),
+					},
+					ReturnType: nil,
 				},
-				ReturnType: nil,
 				Body: Block{
 					pos:        tokens.Position{Line: 1, Column: 11},
 					Statements: []BlockStatement{},
@@ -392,12 +418,14 @@ func TestContextMethodPrivate(t *testing.T) {
 			Interface: "foo",
 			Name:      "bar",
 			Block: FunctionBlock{
-				pos: tokens.Position{Line: 1, Column: 11},
-				Arguments: ArgumentList{
-					pos:   tokens.Position{Line: 1, Column: 11},
-					Items: make([]Node, 0),
+				Parameters: FunctionParameters{
+					pos: tokens.Position{Line: 1, Column: 11},
+					Arguments: ArgumentList{
+						pos:   tokens.Position{Line: 1, Column: 11},
+						Items: make([]Node, 0),
+					},
+					ReturnType: nil,
 				},
-				ReturnType: nil,
 				Body: Block{
 					pos:        tokens.Position{Line: 1, Column: 16},
 					Statements: []BlockStatement{},
@@ -426,12 +454,14 @@ func TestContextMethodComment(t *testing.T) {
 			Interface: "foo",
 			Name:      "bar",
 			Block: FunctionBlock{
-				pos: tokens.Position{Line: 1, Column: 6},
-				Arguments: ArgumentList{
-					pos:   tokens.Position{Line: 1, Column: 6},
-					Items: make([]Node, 0),
+				Parameters: FunctionParameters{
+					pos: tokens.Position{Line: 1, Column: 6},
+					Arguments: ArgumentList{
+						pos:   tokens.Position{Line: 1, Column: 6},
+						Items: make([]Node, 0),
+					},
+					ReturnType: nil,
 				},
-				ReturnType: nil,
 				Body: Block{
 					pos:        tokens.Position{Line: 1, Column: 11},
 					Statements: []BlockStatement{},
@@ -460,16 +490,139 @@ func TestContextMethodPrivateComment(t *testing.T) {
 			Interface: "foo",
 			Name:      "bar",
 			Block: FunctionBlock{
+				Parameters: FunctionParameters{
+					pos: tokens.Position{Line: 1, Column: 16},
+					Arguments: ArgumentList{
+						pos:   tokens.Position{Line: 1, Column: 16},
+						Items: make([]Node, 0),
+					},
+					ReturnType: nil,
+				},
+				Body: Block{
+					pos:        tokens.Position{Line: 1, Column: 21},
+					Statements: []BlockStatement{},
+				},
+			},
+			Comment: "comment",
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// RemoteContextMethod
+// CAN CREATE REMOTE CONTEXT METHOD
+func TestRemoteContextMethod(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "remote foo bar() {}",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseContextMethod(p)
+		},
+		expects: &RemoteContextMethod{
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "foo",
+			Name:      "bar",
+			Parameters: FunctionParameters{
+				pos: tokens.Position{Line: 1, Column: 6},
+				Arguments: ArgumentList{
+					pos:   tokens.Position{Line: 1, Column: 6},
+					Items: make([]Node, 0),
+				},
+				ReturnType: nil,
+			},
+			Comment: "",
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE PRIVATE REMOTE CONTEXT METHOD
+func TestRemoteContextMethodPrivate(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "private remote foo bar() {}",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseContextMethod(p)
+		},
+		expects: &RemoteContextMethod{
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   true,
+			Interface: "foo",
+			Name:      "bar",
+			Parameters: FunctionParameters{
+				pos: tokens.Position{Line: 1, Column: 11},
+				Arguments: ArgumentList{
+					pos:   tokens.Position{Line: 1, Column: 11},
+					Items: make([]Node, 0),
+				},
+				ReturnType: nil,
+			},
+			Comment: "",
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE REMOTE CONTEXT METHOD WITH LEADING COMMENT
+func TestRemoteContextMethodComment(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "/*comment*/ remote foo bar() { }",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseContextMethod(p)
+		},
+		expects: &RemoteContextMethod{
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   false,
+			Interface: "foo",
+			Name:      "bar",
+			Parameters: FunctionParameters{
+				pos: tokens.Position{Line: 1, Column: 6},
+				Arguments: ArgumentList{
+					pos:   tokens.Position{Line: 1, Column: 6},
+					Items: make([]Node, 0),
+				},
+				ReturnType: nil,
+			},
+			Comment: "comment",
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE PRIVATE REMOTE CONTEXT METHOD WITH LEADING COMMENT
+func TestRemoteContextMethodPrivateComment(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "/*comment*/ private remote foo bar() { }",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseContextMethod(p)
+		},
+		expects: &RemoteContextMethod{
+			pos:       tokens.Position{Line: 1, Column: 1},
+			Private:   true,
+			Interface: "foo",
+			Name:      "bar",
+			Parameters: FunctionParameters{
 				pos: tokens.Position{Line: 1, Column: 16},
 				Arguments: ArgumentList{
 					pos:   tokens.Position{Line: 1, Column: 16},
 					Items: make([]Node, 0),
 				},
 				ReturnType: nil,
-				Body: Block{
-					pos:        tokens.Position{Line: 1, Column: 21},
-					Statements: []BlockStatement{},
-				},
 			},
 			Comment: "comment",
 		},

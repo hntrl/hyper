@@ -27,6 +27,7 @@ func TestArgumentList(t *testing.T) {
 							Init: TypeExpression{
 								pos:        tokens.Position{Line: 1, Column: 6},
 								IsArray:    false,
+								IsPartial:  false,
 								IsOptional: false,
 								Selector: Selector{
 									pos:     tokens.Position{Line: 1, Column: 6},
@@ -42,6 +43,7 @@ func TestArgumentList(t *testing.T) {
 					Init: TypeExpression{
 						pos:        tokens.Position{Line: 1, Column: 13},
 						IsArray:    false,
+						IsPartial:  false,
 						IsOptional: false,
 						Selector: Selector{
 							pos:     tokens.Position{Line: 1, Column: 13},
@@ -82,32 +84,35 @@ func TestFunctionBlock(t *testing.T) {
 			return ParseFunctionBlock(p)
 		},
 		expects: &FunctionBlock{
-			pos: tokens.Position{Line: 1, Column: 1},
-			Arguments: ArgumentList{
-				pos: tokens.Position{Line: 1, Column: 2},
-				Items: []Node{
-					ArgumentItem{
-						pos: tokens.Position{Line: 1, Column: 2},
-						Key: "a",
-						Init: TypeExpression{
-							pos:        tokens.Position{Line: 1, Column: 5},
-							IsArray:    false,
-							IsOptional: false,
-							Selector: Selector{
-								pos:     tokens.Position{Line: 1, Column: 5},
-								Members: []string{"b"},
+			Parameters: FunctionParameters{
+				Arguments: ArgumentList{
+					pos: tokens.Position{Line: 1, Column: 2},
+					Items: []Node{
+						ArgumentItem{
+							pos: tokens.Position{Line: 1, Column: 2},
+							Key: "a",
+							Init: TypeExpression{
+								pos:        tokens.Position{Line: 1, Column: 5},
+								IsArray:    false,
+								IsPartial:  false,
+								IsOptional: false,
+								Selector: Selector{
+									pos:     tokens.Position{Line: 1, Column: 5},
+									Members: []string{"b"},
+								},
 							},
 						},
 					},
 				},
-			},
-			ReturnType: &TypeExpression{
-				pos:        tokens.Position{Line: 1, Column: 8},
-				IsArray:    false,
-				IsOptional: false,
-				Selector: Selector{
-					pos:     tokens.Position{Line: 1, Column: 8},
-					Members: []string{"c"},
+				ReturnType: &TypeExpression{
+					pos:        tokens.Position{Line: 1, Column: 8},
+					IsArray:    false,
+					IsPartial:  false,
+					IsOptional: false,
+					Selector: Selector{
+						pos:     tokens.Position{Line: 1, Column: 8},
+						Members: []string{"c"},
+					},
 				},
 			},
 			Body: Block{
@@ -130,26 +135,28 @@ func TestFunctionBlockWithoutReturnType(t *testing.T) {
 			return ParseFunctionBlock(p)
 		},
 		expects: &FunctionBlock{
-			pos: tokens.Position{Line: 1, Column: 1},
-			Arguments: ArgumentList{
-				pos: tokens.Position{Line: 1, Column: 2},
-				Items: []Node{
-					ArgumentItem{
-						pos: tokens.Position{Line: 1, Column: 2},
-						Key: "a",
-						Init: TypeExpression{
-							pos:        tokens.Position{Line: 1, Column: 5},
-							IsArray:    false,
-							IsOptional: false,
-							Selector: Selector{
-								pos:     tokens.Position{Line: 1, Column: 5},
-								Members: []string{"b"},
+			Parameters: FunctionParameters{
+				Arguments: ArgumentList{
+					pos: tokens.Position{Line: 1, Column: 2},
+					Items: []Node{
+						ArgumentItem{
+							pos: tokens.Position{Line: 1, Column: 2},
+							Key: "a",
+							Init: TypeExpression{
+								pos:        tokens.Position{Line: 1, Column: 5},
+								IsArray:    false,
+								IsPartial:  false,
+								IsOptional: false,
+								Selector: Selector{
+									pos:     tokens.Position{Line: 1, Column: 5},
+									Members: []string{"b"},
+								},
 							},
 						},
 					},
 				},
+				ReturnType: nil,
 			},
-			ReturnType: nil,
 			Body: Block{
 				pos:        tokens.Position{Line: 1, Column: 8},
 				Statements: []BlockStatement{},

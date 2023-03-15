@@ -1,13 +1,9 @@
-package build
-
-import (
-	"github.com/hntrl/lang/language/nodes"
-)
+package symbols
 
 // Object represents anything that can be referenced in scope that doesn't hold
 // any state
 type Object interface {
-	Get(string) Object
+	Get(string) (Object, error)
 }
 
 // Class represents the abstract type of a ValueObject
@@ -39,29 +35,10 @@ type OperableClass interface {
 
 // Method represents anything that can be called with arguments
 type Method interface {
+	Object
 	Arguments() []Class
 	Returns() Class
 	Call([]ValueObject, ValueObject) (ValueObject, error)
-}
-
-// ObjectInterface represents an interface that can make classes from a ContextObject
-type ObjectInterface interface {
-	ObjectClassFromNode(*Context, nodes.ContextObject) (Class, error)
-}
-
-// ObjectMethodInterface represents any interface that can have methods defined on it
-type ObjectMethodInterface interface {
-	AddMethod(*Context, nodes.ContextObjectMethod) error
-}
-
-// MethodInterface represents an interface that can make classes from a ContextMethod
-type MethodInterface interface {
-	MethodClassFromNode(*Context, nodes.ContextMethod) (Class, error)
-}
-
-// ValueInterface represents an interface that can make objects from a ContextObject
-type ValueInterface interface {
-	ValueFromNode(*Context, nodes.ContextObject) (ValueObject, error)
 }
 
 // ValueObject represents the stateful representation of a Class
@@ -80,18 +57,4 @@ type Indexable interface {
 	SetIndex(int, ValueObject) error
 	Range(int, int) (Indexable, error)
 	Len() int
-}
-
-// Exportable represents the object a class assumes when being imported from an
-// outside context
-type Exportable interface {
-	Class
-	IsExported() bool
-	ExportedObject() Object
-}
-
-// RuntimeNode represents anything that should be attached to the runtime process
-type RuntimeNode interface {
-	Attach(ctx Context) error
-	Detach() error
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/hntrl/lang/language/tokens"
 )
 
-func ParseFromFile(path string) (*nodes.Manifest, error) {
+func ParseContextFromFile(path string) (*nodes.Manifest, error) {
 	errorHandler := func(pos tokens.Position, msg string) {
 		panic(fmt.Sprintf("%s, %s", pos.String(), msg))
 	}
@@ -31,6 +31,29 @@ func ParseFromFile(path string) (*nodes.Manifest, error) {
 		return nil, err
 	}
 	return manifest, nil
+}
+
+func ParseContextItemSetFromFile(path string) (*nodes.ContextItemSet, error) {
+	errorHandler := func(pos tokens.Position, msg string) {
+		panic(fmt.Sprintf("%s, %s, %s", path, pos.String(), msg))
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	lexer := parser.NewLexer(bufio.NewReader(file), errorHandler)
+	parser := parser.NewParser(lexer)
+
+	items, err := nodes.ParseContextItemSet(parser)
+	if err != nil {
+		return nil, err
+	}
+	err = items.Validate()
+	if err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 // func ParseFromFile(path string) (*nodes.Manifest, error) {

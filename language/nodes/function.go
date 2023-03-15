@@ -161,34 +161,29 @@ func ParseArgumentObject(p *parser.Parser) (*ArgumentObject, error) {
 	return &obj, nil
 }
 
-// FunctionBlock :: LPAREN ArgumentList? RPAREN TypeExpression? LCURLY Block RCURLY
-type FunctionBlock struct {
+// FunctionParameters :: LPAREN ArgumentList? RPAREN TypeExpression?
+type FunctionParameters struct {
 	pos        tokens.Position
 	Arguments  ArgumentList
 	ReturnType *TypeExpression
-	Body       Block
 }
 
-func (f FunctionBlock) Validate() error {
-	if err := f.Arguments.Validate(); err != nil {
+func (p FunctionParameters) Validate() error {
+	if err := p.Arguments.Validate(); err != nil {
 		return err
 	}
-	if f.ReturnType != nil {
-		if err := f.ReturnType.Validate(); err != nil {
+	if p.ReturnType != nil {
+		if err := p.ReturnType.Validate(); err != nil {
 			return err
 		}
 	}
-	if err := f.Body.Validate(); err != nil {
-		return err
-	}
 	return nil
 }
-
-func (f FunctionBlock) Pos() tokens.Position {
-	return f.pos
+func (p FunctionParameters) Pos() tokens.Position {
+	return p.pos
 }
 
-func ParseFunctionBlock(p *parser.Parser) (*FunctionBlock, error) {
+func ParseFunctionParameters(p *parser.Parser) (*FunctionParameters, error) {
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok != tokens.LPAREN {
 		return nil, ExpectedError(pos, tokens.LPAREN, lit)
@@ -197,24 +192,51 @@ func ParseFunctionBlock(p *parser.Parser) (*FunctionBlock, error) {
 	if err != nil {
 		return nil, err
 	}
-	fn := FunctionBlock{pos: pos, Arguments: *args}
+	params := FunctionParameters{pos: pos, Arguments: *args}
 
 	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok != tokens.RPAREN {
 		return nil, ExpectedError(pos, tokens.RPAREN, lit)
 	}
 
-	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	p.Unscan()
 	if tok == tokens.IDENT || tok == tokens.LSQUARE {
-		p.Unscan()
 		ret, err := ParseTypeExpression(p)
 		if err != nil {
 			return nil, err
 		}
-		fn.ReturnType = ret
-		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		params.ReturnType = ret
 	}
+	return &params, nil
+}
 
+// FunctionBlock :: FunctionParameters LCURLY Block RCURLY
+type FunctionBlock struct {
+	Parameters FunctionParameters
+	Body       Block
+}
+
+func (f FunctionBlock) Validate() error {
+	if err := f.Parameters.Validate(); err != nil {
+		return err
+	}
+	if err := f.Body.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (f FunctionBlock) Pos() tokens.Position {
+	return f.Parameters.pos
+}
+
+func ParseFunctionBlock(p *parser.Parser) (*FunctionBlock, error) {
+	params, err := ParseFunctionParameters(p)
+	if err != nil {
+		return nil, err
+	}
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok != tokens.LCURLY {
 		return nil, ExpectedError(pos, tokens.LCURLY, lit)
 	}
@@ -222,12 +244,11 @@ func ParseFunctionBlock(p *parser.Parser) (*FunctionBlock, error) {
 	if err != nil {
 		return nil, err
 	}
-	fn.Body = *block
 	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok != tokens.RCURLY {
 		return nil, ExpectedError(pos, tokens.RCURLY, lit)
 	}
-	return &fn, nil
+	return &FunctionBlock{Parameters: *params, Body: *block}, nil
 }
 
 // FunctionExpression :: FUNC IDENT FunctionBlock

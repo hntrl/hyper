@@ -4,7 +4,9 @@
 ## Project directory
 
 `language/` contains the package responsible for tokenizing and marshalling a buffer into an AST, as well as all the definitions for standard syntax
-`resource/`
+`symbols/` describes the interactions between interfaces and resolving syntax nodes into logic
+`context/` contains the logic to turn a manifest into a meaningful context
+`runtime/` represents all the abstractions and logic used to utilize a context as a service
 
 ## Tests to write
 
@@ -63,3 +65,57 @@ Interpreter test suite
 
 // todo: resource tests
 
+
+### ISSUE TRACKER (ik lol)
+
+1. 
+When doing a binary expression on a nil number, the error message isn't very helpful.
+```
+breakdown.subtotal /* Double? = nil */ += 0.5
+```
+This fails with `cannot construct number from <nil>`. This should resolve with something like `cannot do binop of <nil> object`, but that would invalidate `== nil` binops. The number constructor works by providing handlers for every number type, meaning that the context of the contructed number being apart of a binop is not accessible (this is because before a binop is performed, the operand is cast to the object being operated on). Ideally this would be handled by some kind of error code, but I fear that would make a bad linkage between the type system and the number primitive.
+IDK. figure it out.
+
+2.
+Right now, you can't use an index as an assignment, meaning if I wanted to effectively "map" and return a new iterable, i'd need to do this
+```
+iterable := someIterable
+newIterable := []T{}
+for (idx, val in iterable) {
+   val.foo = "bar"
+   newIterable = newIterable.append(val)
+}
+return newIterable
+```
+You should be able to do this:
+```
+for (idx in iterable) {
+   iterable[idx].foo = "bar"
+}
+return iterable
+```
+
+3.
+If you try to call a method for something that hasn't been imported yet, the error message won't be useful
+```
+/* without importing stickerspace.order */
+stickerspace.order.FetchSalesTaxPercentage() // <- stickerspace.order.FetchSalesTaxPercentage is not callable
+```
+It should be `unknown selector stickerspace.order`
+
+4.
+You can use class primitives as values in a property expression and the analyzer won't fail
+`fn({ product_id: String })` should fail (and does when a process is attached), but passes in analysis
+
+5.
+There's a bunch of nasty cyclic errors and nilable objects not resolving when constructing. Do `deprecated_debug()` on any complex object and you'll see what I mean. I think it's a non-issue, but GOOD HELL ITS GIVING ME A MIGRAINE
+
+6. `break` and `continue` statements will throw an error if the statement is not declared in a loop block
+```
+for (...) {
+   if (something) {
+      break  // <-- this will fail
+   }
+   break  // <-- this wont fail
+}
+```

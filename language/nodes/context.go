@@ -8,34 +8,24 @@ import (
 	"github.com/hntrl/lang/language/tokens"
 )
 
-// Context :: COMMENT? CONTEXT Selector LCURLY (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)* RCURLY
+// Context :: COMMENT? CONTEXT Selector LCURLY (UseStatement | ContextItem)* RCURLY
 type Context struct {
 	pos     tokens.Position
 	Name    string
-	Objects []Node `types:"ContextObject,ContextObjectMethod,ContextMethod,FunctionExpression"`
+	Remotes []UseStatement
+	Items   []ContextItem
 	Comment string
 }
 
 func (c Context) Validate() error {
-	for _, obj := range c.Objects {
-		if ctxObj, ok := obj.(ContextObject); ok {
-			if err := ctxObj.Validate(); err != nil {
-				return err
-			}
-		} else if objMethod, ok := obj.(ContextObjectMethod); ok {
-			if err := objMethod.Validate(); err != nil {
-				return err
-			}
-		} else if method, ok := obj.(ContextMethod); ok {
-			if err := method.Validate(); err != nil {
-				return err
-			}
-		} else if fn, ok := obj.(FunctionExpression); ok {
-			if err := fn.Validate(); err != nil {
-				return err
-			}
-		} else {
-			return fmt.Errorf("parsing: %T not allowed in Context", obj)
+	for _, obj := range c.Remotes {
+		if err := obj.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, obj := range c.Items {
+		if err := obj.Validate(); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -46,7 +36,7 @@ func (c Context) Pos() tokens.Position {
 }
 
 func ParseContext(p *parser.Parser) (*Context, error) {
-	context := Context{Objects: make([]Node, 0)}
+	context := Context{Remotes: make([]UseStatement, 0), Items: make([]ContextItem, 0)}
 
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE)
 	if tok == tokens.COMMENT {
@@ -83,26 +73,143 @@ func ParseContext(p *parser.Parser) (*Context, error) {
 		}
 		p.Unscan()
 		_, tok, _ = p.ScanIgnore(tokens.NEWLINE)
-		if tok == tokens.FUNC {
-			_, tok, _ = p.ScanIgnore(tokens.NEWLINE)
-			p.Rollback(startIndex - 1)
-			if tok == tokens.LPAREN {
-				method, err := ParseContextObjectMethod(p)
-				if err != nil {
-					return nil, err
-				}
-				context.Objects = append(context.Objects, *method)
-			} else {
-				fn, err := ParseFunctionExpression(p)
-				if err != nil {
-					return nil, err
-				}
-				context.Objects = append(context.Objects, *fn)
+		if tok == tokens.USE {
+			p.Unscan()
+			stmt, err := ParseUseStatement(p)
+			if err != nil {
+				return nil, err
 			}
+			context.Remotes = append(context.Remotes, *stmt)
 		} else {
-			if tok == tokens.PRIVATE {
-				p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+			p.Rollback(startIndex - 1)
+			item, err := ParseContextItem(p)
+			if err != nil {
+				return nil, err
 			}
+			context.Items = append(context.Items, *item)
+		}
+	}
+	return &context, nil
+}
+
+// ContextItemSet :: ContextItem*
+type ContextItemSet struct {
+	Items []ContextItem
+}
+
+func (is ContextItemSet) Validate() error {
+	for _, obj := range is.Items {
+		if err := obj.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (is ContextItemSet) Pos() tokens.Position {
+	return is.Items[0].Pos()
+}
+
+func ParseContextItemSet(p *parser.Parser) (*ContextItemSet, error) {
+	set := ContextItemSet{Items: make([]ContextItem, 0)}
+	for {
+		_, tok, _ := p.ScanIgnore(tokens.NEWLINE)
+		if tok == tokens.EOF {
+			break
+		}
+		startIndex := p.Index()
+		if tok == tokens.COMMENT {
+			_, tok, _ = p.Scan()
+			if tok != tokens.IDENT && tok != tokens.PRIVATE && tok != tokens.RCURLY {
+				continue
+			}
+		}
+		p.Unscan()
+		_, tok, _ = p.ScanIgnore(tokens.NEWLINE)
+		if tok == tokens.USE {
+			return nil, fmt.Errorf("use directive not used in top level context")
+		} else {
+			p.Rollback(startIndex - 1)
+			item, err := ParseContextItem(p)
+			if err != nil {
+				return nil, err
+			}
+			set.Items = append(set.Items, *item)
+		}
+	}
+	return &set, nil
+}
+
+// ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | RemoteContextMethod | FunctionExpression)
+type ContextItem struct {
+	Init Node `types:"ContextObject,ContextObjectMethod,ContextMethod,RemoteContextMethod,FunctionExpression"`
+}
+
+func (i ContextItem) Validate() error {
+	if obj, ok := i.Init.(ContextObject); ok {
+		if err := obj.Validate(); err != nil {
+			return err
+		}
+	} else if method, ok := i.Init.(ContextObjectMethod); ok {
+		if err := method.Validate(); err != nil {
+			return err
+		}
+	} else if method, ok := i.Init.(ContextMethod); ok {
+		if err := method.Validate(); err != nil {
+			return err
+		}
+	} else if method, ok := i.Init.(RemoteContextMethod); ok {
+		if err := method.Validate(); err != nil {
+			return err
+		}
+	} else if expr, ok := i.Init.(FunctionExpression); ok {
+		if err := expr.Validate(); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("parsing %T not allowed in ContextItem", i.Init)
+	}
+	return nil
+}
+
+func (i ContextItem) Pos() tokens.Position {
+	return i.Init.Pos()
+}
+
+func ParseContextItem(p *parser.Parser) (*ContextItem, error) {
+	startIndex := p.Index()
+	_, tok, _ := p.ScanIgnore(tokens.NEWLINE)
+	if tok == tokens.FUNC {
+		_, tok, _ = p.ScanIgnore(tokens.NEWLINE)
+		p.Rollback(startIndex - 1)
+		if tok == tokens.LPAREN {
+			method, err := ParseContextObjectMethod(p)
+			if err != nil {
+				return nil, err
+			}
+			return &ContextItem{*method}, nil
+		} else {
+			fn, err := ParseFunctionExpression(p)
+			if err != nil {
+				return nil, err
+			}
+			return &ContextItem{*fn}, nil
+		}
+	} else {
+		if tok == tokens.COMMENT {
+			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		}
+		if tok == tokens.PRIVATE {
+			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		}
+		if tok == tokens.REMOTE {
+			p.Rollback(startIndex - 1)
+			method, err := ParseRemoteContextMethod(p)
+			if err != nil {
+				return nil, err
+			}
+			return &ContextItem{*method}, nil
+		} else {
 			p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 			p.Rollback(startIndex - 1)
@@ -111,17 +218,44 @@ func ParseContext(p *parser.Parser) (*Context, error) {
 				if err != nil {
 					return nil, err
 				}
-				context.Objects = append(context.Objects, *method)
+				return &ContextItem{*method}, nil
 			} else {
 				obj, err := ParseContextObject(p)
 				if err != nil {
 					return nil, err
 				}
-				context.Objects = append(context.Objects, *obj)
+				return &ContextItem{*obj}, nil
 			}
 		}
 	}
-	return &context, nil
+}
+
+// UseStatement :: USE IDENT
+type UseStatement struct {
+	pos    tokens.Position
+	Source string
+}
+
+func (u UseStatement) Validate() error {
+	return nil
+}
+func (u UseStatement) Pos() tokens.Position {
+	return u.pos
+}
+
+func ParseUseStatement(p *parser.Parser) (*UseStatement, error) {
+	statement := &UseStatement{}
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok != tokens.USE {
+		return nil, ExpectedError(pos, tokens.USE, lit)
+	}
+	statement.pos = pos
+	_, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok != tokens.STRING {
+		return nil, ExpectedError(pos, tokens.IDENT, lit)
+	}
+	statement.Source = lit
+	return statement, nil
 }
 
 // ContextObject :: COMMENT? PRIVATE? IDENT IDENT (EXTENDS Selector)? LCURLY FieldStatement* RCURLY
@@ -319,5 +453,59 @@ func ParseContextMethod(p *parser.Parser) (*ContextMethod, error) {
 		return nil, err
 	}
 	method.Block = *block
+	return &method, nil
+}
+
+// RemoteContextMethod :: COMMENT? PRIVATE? REMOTE IDENT IDENT FunctionParameters
+type RemoteContextMethod struct {
+	pos        tokens.Position
+	Private    bool
+	Interface  string
+	Name       string
+	Parameters FunctionParameters
+	Comment    string
+}
+
+func (c RemoteContextMethod) Validate() error {
+	return c.Parameters.Validate()
+}
+
+func (c RemoteContextMethod) Pos() tokens.Position {
+	return c.pos
+}
+
+func ParseRemoteContextMethod(p *parser.Parser) (*RemoteContextMethod, error) {
+	method := RemoteContextMethod{}
+
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE)
+	if tok == tokens.COMMENT {
+		method.Comment = lit
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE)
+	}
+	if tok == tokens.PRIVATE {
+		method.Private = true
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	}
+	if tok != tokens.REMOTE {
+		return nil, ExpectedError(pos, tokens.REMOTE, lit)
+	}
+	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok != tokens.IDENT {
+		return nil, ExpectedError(pos, tokens.IDENT, lit)
+	}
+	method.Interface = lit
+	method.pos = pos
+
+	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok != tokens.IDENT {
+		return nil, ExpectedError(pos, tokens.IDENT, lit)
+	}
+	method.Name = lit
+
+	params, err := ParseFunctionParameters(p)
+	if err != nil {
+		return nil, err
+	}
+	method.Parameters = *params
 	return &method, nil
 }

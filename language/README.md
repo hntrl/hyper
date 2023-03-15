@@ -18,10 +18,20 @@ Literal :: STRING
          | FLOAT
   * Value: interface{}
 
-Context :: COMMENT? CONTEXT Selector LCURLY (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)* RCURLY
+Context :: COMMENT? CONTEXT Selector LCURLY (UseStatement | ContextItem)* RCURLY
   * Name: string
-  * Objects: [](ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
+  * Remotes: []UseStatement
+  * Items: []ContextItem
   * Comment: string
+
+ContextItemSet :: ContextItem*
+  * Items: []ContextItem
+
+ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | RemoteContextMethod | FunctionExpression)
+  * Init: (ContextObject | ContextObjectMethod | ContextMethod | RemoteContextMethod | FunctionExpression)
+
+UseStatement :: USE IDENT
+  * Source: string
 
 ContextObject :: COMMENT? PRIVATE? IDENT IDENT (EXTENDS Selector)? LCURLY FieldStatement* RCURLY
   * Private: bool
@@ -41,6 +51,13 @@ ContextMethod :: COMMENT? PRIVATE? IDENT IDENT FunctionBlock
   * Interface: string
   * Name: string
   * Block: FunctionBlock
+  * Comment: string
+
+RemoteContextMethod :: COMMENT? PRIVATE? REMOTE IDENT IDENT FunctionParameters
+  * Private: bool
+  * Interface: string
+  * Name: string
+  * Parameters: FunctionParameters
   * Comment: string
 
 FieldStatement :: COMMENT? AssignmentStatement
@@ -66,7 +83,9 @@ FunctionStatement :: IDENT FunctionBlock
   * Init: FunctionBlock
 
 TypeExpression :: (LSQUARE RSQUARE)? Selector QUESTION?
+                | (LSQUARE RSQUARE) PARTIAL LT Selector GT QUESTION?
   * IsArray: bool
+  * IsPartial: bool
   * IsOptional: bool
   * Members: []string
 
@@ -145,8 +164,12 @@ ArgumentItem :: IDENT COLON TypeExpression
 ArgumentObject :: LCURLY (ArgumentItem)? (ArgumentItem COMMA)* RCURLY
   * Items: []ArgumentItem
 
-FunctionBlock :: LPAREN ArgumentList? RPAREN TypeExpression? LCURLY Block RCURLY
+FunctionParameters :: LPAREN ArgumentList? RPAREN TypeExpression?
   * Arguments: ArgumentList
+  * ReturnType: TypeExpression?
+
+FunctionBlock :: FunctionParameters LCURLY Block RCURLY
+  * Parameters: FunctionParameters
   * ReturnType: TypeExpression?
   * Body: Block
 

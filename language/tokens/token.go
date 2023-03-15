@@ -71,7 +71,9 @@ const (
 	// Keywords
 	IMPORT
 	CONTEXT
+	USE
 	PRIVATE
+	REMOTE
 	EXTENDS
 	FUNC
 	VAR
@@ -88,6 +90,7 @@ const (
 	GUARD
 	RETURN
 	THROW
+	PARTIAL
 	keyword_end
 )
 
@@ -148,7 +151,9 @@ var tokens = []string{
 
 	IMPORT:   "import",
 	CONTEXT:  "context",
+	USE:      "use",
 	PRIVATE:  "private",
+	REMOTE:   "remote",
 	EXTENDS:  "extends",
 	FUNC:     "func",
 	VAR:      "var",
@@ -165,6 +170,7 @@ var tokens = []string{
 	GUARD:    "guard",
 	RETURN:   "return",
 	THROW:    "throw",
+	PARTIAL:  "Partial",
 }
 
 const (

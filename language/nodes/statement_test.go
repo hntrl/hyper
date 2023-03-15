@@ -80,6 +80,7 @@ func TestFieldStatementWithTypeStatement(t *testing.T) {
 				Init: TypeExpression{
 					pos:        tokens.Position{Line: 1, Column: 9},
 					IsArray:    false,
+					IsPartial:  false,
 					IsOptional: false,
 					Selector: Selector{
 						pos:     tokens.Position{Line: 1, Column: 9},

@@ -25,7 +25,8 @@ func TestManifest(t *testing.T) {
 			Context: Context{
 				pos:     tokens.Position{Line: 1, Column: 14},
 				Name:    "bar",
-				Objects: []Node{},
+				Remotes: []UseStatement{},
+				Items:   []ContextItem{},
 				Comment: "",
 			},
 		},

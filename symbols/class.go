@@ -1,4 +1,4 @@
-package build
+package symbols
 
 import (
 	"encoding/json"
@@ -10,8 +10,6 @@ import (
 
 	"github.com/mitchellh/hashstructure"
 )
-
-/* Class helpers + definitions */
 
 // Converts a byte array into a ValueObject
 func FromBytes(bytes []byte) (ValueObject, error) {
@@ -51,7 +49,7 @@ func FromInterface(obj interface{}) (ValueObject, error) {
 		}
 		if len(arr) == 0 {
 			return Iterable{
-				GenericObject{},
+				MapObject{},
 				arr,
 			}, nil
 		} else {
@@ -61,7 +59,7 @@ func FromInterface(obj interface{}) (ValueObject, error) {
 			}, nil
 		}
 	case reflect.Map:
-		generic := NewGenericObject()
+		mapObject := NewMapObject()
 		iter := items.MapRange()
 		for iter.Next() {
 			key := iter.Key().String()
@@ -69,10 +67,10 @@ func FromInterface(obj interface{}) (ValueObject, error) {
 			if err != nil {
 				return nil, err
 			}
-			generic.fields[key] = value.Class()
-			generic.data[key] = value
+			mapObject.Properties[key] = value.Class()
+			mapObject.Data[key] = value
 		}
-		return generic, nil
+		return mapObject, nil
 	case reflect.Bool:
 		return BooleanLiteral(items.Bool()), nil
 	case reflect.Invalid:
@@ -80,36 +78,6 @@ func FromInterface(obj interface{}) (ValueObject, error) {
 	default:
 		return nil, fmt.Errorf("unmarshal: unknown type %s", items.Kind())
 	}
-}
-
-// Recursively flatten a given ObjectClass into a period delimited map with all fields
-func FlattenObject(val ValueObject, m map[string]interface{}, p string) error {
-	obj, ok := val.Class().(ObjectClass)
-	if !ok {
-		return fmt.Errorf("cannot flatten non-object")
-	}
-
-	for k := range obj.Fields() {
-		val := obj.Get(k)
-		if valueObj, ok := val.(ValueObject); ok {
-			if class, ok := valueObj.Class().(ObjectClass); ok && class.Fields() != nil {
-				err := FlattenObject(valueObj, m, p+k+".")
-				if err != nil {
-					return err
-				}
-			} else {
-				if val := valueObj.Value(); val != nil {
-					m[p+k] = val
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// Returns true if the ValueObject's class is equal to the given class
-func InstanceOf(obj ValueObject, class Class) bool {
-	return ClassEquals(obj.Class(), class)
 }
 
 // Returns true if the two classes are equal using the hash of the classes
@@ -167,93 +135,142 @@ func (csMap ConstructorMap) Get(class Class) ConstructorFn {
 	}
 	return nil
 }
+func (csMap ConstructorMap) GetGenericConstructor() *GenericConstructor {
+	return csMap.generic
+}
 
-func ShouldConstruct(class, from Class) error {
-	if ClassEquals(class, from) {
+// Returns no error if a class can be constructed into another class.
+func ShouldConstruct(to, from Class) error {
+	if ClassEquals(to, from) {
 		return nil
 	}
-	if iterable, ok := class.(Iterable); ok {
+	if _, ok := to.(AnyClass); ok {
+		// If the target class is `AnyClass`, the value gets returned
+		return nil
+	} else if nilableClass, ok := to.(*NilableObject); ok {
+		// If the target class is a nilable iterable, redo ShouldConstruct with the parent iterable as the target class
+		if parentIterable, ok := nilableClass.ClassObject.(Iterable); ok {
+			return ShouldConstruct(parentIterable, from)
+		}
+	} else if iterable, ok := to.(Iterable); ok {
+		// If both the target class and the value's class are iterable, redo ShouldConstruct with their parent types
 		if fromIterable, ok := from.(Iterable); ok {
-			if fn := iterable.ParentType.Constructors().Get(fromIterable.ParentType); fn != nil {
+			return ShouldConstruct(iterable.ParentType, fromIterable.ParentType)
+		}
+	}
+	if nilable, ok := from.(*NilableObject); ok {
+		// If the value class is optional, redo ShouldConstruct with the parent class
+		return ShouldConstruct(to, nilable.ClassObject)
+	} else if fn := to.Constructors().Get(from); fn != nil {
+		// If the target class has a constructor defined for the value's class, it should construct
+		return nil
+	} else if mapFrom, ok := from.(*MapObject); ok {
+		// If the value class is a MapObject, it should construct IF:
+		//   1. the target class is an object class
+		//   2. the target class has a generic constructor
+		//   3. the map object doesn't have any properties that dont exist on the target class
+		//   4. the map object isn't missing any properties that are defined on the target class (unless the property is optional)
+		//   5. the map object fields are constructable to the target class's fields
+		if to.Constructors().generic != nil {
+			if objectClass, ok := to.(ObjectClass); ok {
+				toFields := objectClass.Fields()
+				// for key := range mapFrom.Properties {
+				// 	if _, ok := toFields[key]; !ok {
+				// 		return fmt.Errorf("unknown property %s", key)
+				// 	}
+				// }
+				for key, class := range toFields {
+					prop := mapFrom.Properties[key]
+					if prop == nil {
+						if _, ok := class.(*NilableObject); !ok {
+							return fmt.Errorf("missing property %s", key)
+						}
+					} else {
+						err := ShouldConstruct(class, prop)
+						if err != nil {
+							return err
+						}
+					}
+				}
 				return nil
 			}
 		}
-	} else if fn := class.Constructors().Get(from); fn != nil {
-		return nil
-	} else if getHash(from) == genericHash {
-		if genericFn := class.Constructors().generic; genericFn != nil {
-			if generic, ok := from.(*GenericObject); ok {
-				if objectClass, ok := class.(ObjectClass); ok {
-					for key := range generic.Fields() {
-						if target := objectClass.Fields()[key]; target == nil {
-							return fmt.Errorf("unknown property %s", key)
-						}
-					}
-					if _, ok := class.(NilableObject); !ok {
-						for key, class := range objectClass.Fields() {
-							if _, ok := class.(NilableObject); !ok {
-								if target := generic.Fields()[key]; target == nil {
-									return fmt.Errorf("missing property %s", key)
-								}
-							}
-						}
-					}
-					return nil
-				}
-			}
-		}
 	} else if objectClass, ok := from.(ObjectClass); ok {
-		if objectClass.Fields() != nil {
-			if _, ok := objectClass.(*GenericObject); !ok { // to avoid a cycle
-				return ShouldConstruct(class, &GenericObject{fields: objectClass.Fields()})
-			}
+		// If the value's class is an ObjectClass and a generic constructor is defined, redo ShouldConstruct as if the value was a map object
+		if fields := objectClass.Fields(); fields != nil {
+			return ShouldConstruct(to, &MapObject{Properties: fields})
 		}
 	}
-	if nilableFrom, ok := from.(NilableObject); ok {
-		return ShouldConstruct(class, nilableFrom.ClassObject)
-	}
-	return CannotConstructError(class.ClassName(), from.ClassName())
+	return CannotConstructError(to.ClassName(), from.ClassName())
 }
-func Construct(class Class, from ValueObject) (ValueObject, error) {
-	if ClassEquals(class, from.Class()) {
+
+func Construct(to Class, from ValueObject) (ValueObject, error) {
+	if ClassEquals(to, from.Class()) {
 		return from, nil
 	}
-	if iterable, ok := class.(Iterable); ok {
+	if _, ok := to.(AnyClass); ok {
+		return from, nil
+	} else if nilableClass, ok := to.(*NilableObject); ok {
+		if parentIterable, ok := nilableClass.ClassObject.(Iterable); ok {
+			val, err := Construct(parentIterable, from)
+			if err != nil {
+				return nil, err
+			}
+			return &NilableObject{parentIterable, val}, nil
+		}
+	} else if iterable, ok := to.(Iterable); ok {
 		if fromIterable, ok := from.(Iterable); ok {
-			iterable.Items = make([]ValueObject, len(fromIterable.Items))
+			parentType := iterable.ParentType
+			newIterable := NewIterable(parentType, len(fromIterable.Items))
 			for idx, val := range fromIterable.Items {
-				var err error
-				iterable.Items[idx], err = Construct(iterable.ParentType, val)
+				newItem, err := Construct(parentType, val)
 				if err != nil {
 					return nil, err
 				}
+				newIterable.Items[idx] = newItem
 			}
-			return iterable, nil
+			return newIterable, nil
 		}
-	} else if fn := class.Constructors().Get(from.Class()); fn != nil {
+	}
+	if nilable, ok := from.(*NilableObject); ok {
+		if nilable.Object == nil {
+			return nil, fmt.Errorf("cannot construct %s from nil", to.ClassName())
+		}
+		return Construct(to, nilable.Object)
+	} else if fn := to.Constructors().Get(from.Class()); fn != nil {
 		return fn(from)
-	} else if generic, ok := from.(*GenericObject); ok {
-		if genericFn := class.Constructors().generic; genericFn != nil {
-			if objectClass, ok := class.(ObjectClass); ok {
-				var err error
+	} else if mapFrom, ok := from.(*MapObject); ok {
+		if genericFn := to.Constructors().generic; genericFn != nil {
+			if objectClass, ok := to.(ObjectClass); ok {
+				toFields := objectClass.Fields()
+				// for key := range mapFrom.Properties {
+				// 	if _, ok := toFields[key]; !ok {
+				// 		return nil, fmt.Errorf("unknown property %s", key)
+				// 	}
+				// }
+				fieldErrors := make(map[string]string)
 				data := make(map[string]ValueObject)
-				for key, val := range generic.data {
-					if target := objectClass.Fields()[key]; target != nil {
-						data[key], err = Construct(target, val)
-						if err != nil {
-							return nil, err
+				for key, class := range toFields {
+					prop := mapFrom.Data[key]
+					if prop == nil {
+						if targetNilable, ok := class.(*NilableObject); ok {
+							nilable := *targetNilable
+							data[key] = &NilableObject{nilable.ClassObject, nil}
+						} else {
+							fieldErrors[key] = fmt.Sprintf("missing property %s", key)
 						}
 					} else {
-						return nil, fmt.Errorf("unknown property %s", key)
+						newItem, err := Construct(class, prop)
+						if err != nil {
+							fieldErrors[key] = err.Error()
+						}
+						data[key] = newItem
 					}
 				}
-				if _, ok := class.(NilableObject); !ok {
-					for key, val := range objectClass.Fields() {
-						if _, ok := val.(NilableObject); !ok {
-							if target := generic.data[key]; target == nil {
-								return nil, fmt.Errorf("missing property %s", key)
-							}
-						}
+				if len(fieldErrors) > 0 {
+					return nil, Error{
+						Name: "ValidationError",
+						Data: fieldErrors,
 					}
 				}
 				fn := *genericFn
@@ -261,26 +278,21 @@ func Construct(class Class, from ValueObject) (ValueObject, error) {
 			}
 		}
 	} else if objectClass, ok := from.Class().(ObjectClass); ok {
-		if objectClass.Fields() != nil {
-			if _, ok := objectClass.(*GenericObject); !ok { // to avoid a cycle
-				data := make(map[string]ValueObject)
-				fields := objectClass.Fields()
-				for key := range fields {
-					if value, ok := from.Get(key).(ValueObject); ok {
-						data[key] = value
-					}
+		if fields := objectClass.Fields(); fields != nil {
+			data := make(map[string]ValueObject)
+			for key := range fields {
+				obj, err := from.Get(key)
+				if err != nil {
+					return nil, err
 				}
-				return Construct(class, &GenericObject{fields, data})
+				if val, ok := obj.(ValueObject); ok {
+					data[key] = val
+				}
 			}
+			return Construct(to, &MapObject{fields, data})
 		}
 	}
-	if nilableFrom, ok := from.(*NilableObject); ok {
-		if nilableFrom.Object == nil {
-			return nil, fmt.Errorf("cannot construct %s from nil", class.ClassName())
-		}
-		return Construct(class, nilableFrom.Object)
-	}
-	return nil, CannotConstructError(class.ClassName(), from.Class().ClassName())
+	return nil, CannotConstructError(to.ClassName(), from.Class().ClassName())
 }
 
 type OperatorFn func(ValueObject, ValueObject) (ValueObject, error)
@@ -333,7 +345,7 @@ func (rules ComparatorRules) Get(class Class, token tokens.Token) OperatorFn {
 }
 
 func getOperatorFn(token tokens.Token, left, right Class) (OperatorFn, error) {
-	if nilableObject, ok := right.(NilableObject); ok {
+	if nilableObject, ok := right.(*NilableObject); ok {
 		right = nilableObject.ClassObject
 	}
 	if token.IsComparableOperator() {

@@ -18,6 +18,7 @@ func TestTypeExpression(t *testing.T) {
 		expects: &TypeExpression{
 			pos:        tokens.Position{Line: 1, Column: 6},
 			IsArray:    false,
+			IsPartial:  false,
 			IsOptional: false,
 			Selector: Selector{
 				pos:     tokens.Position{Line: 1, Column: 1},
@@ -42,6 +43,7 @@ func TestTypeExpressionOptional(t *testing.T) {
 		expects: &TypeExpression{
 			pos:        tokens.Position{Line: 1, Column: 6},
 			IsArray:    false,
+			IsPartial:  false,
 			IsOptional: true,
 			Selector: Selector{
 				pos:     tokens.Position{Line: 1, Column: 1},
@@ -66,6 +68,32 @@ func TestTypeExpressionArray(t *testing.T) {
 		expects: &TypeExpression{
 			pos:        tokens.Position{Line: 1, Column: 1},
 			IsArray:    true,
+			IsPartial:  false,
+			IsOptional: false,
+			Selector: Selector{
+				pos:     tokens.Position{Line: 1, Column: 3},
+				Members: []string{"Foo"},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE PARTIAL TYPE EXPRESSION
+func TestTypeExpressionPartial(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "Partial<Foo>",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseTypeExpression(p)
+		},
+		expects: &TypeExpression{
+			pos:        tokens.Position{Line: 1, Column: 1},
+			IsArray:    false,
+			IsPartial:  true,
 			IsOptional: false,
 			Selector: Selector{
 				pos:     tokens.Position{Line: 1, Column: 3},
@@ -95,6 +123,7 @@ func TestArrayExpression(t *testing.T) {
 				Init: TypeExpression{
 					pos:        tokens.Position{Line: 1, Column: 3},
 					IsArray:    false,
+					IsPartial:  false,
 					IsOptional: false,
 					Selector: Selector{
 						pos:     tokens.Position{Line: 1, Column: 3},
@@ -247,12 +276,13 @@ func TestFunctionExpression(t *testing.T) {
 			Init: FunctionExpression{
 				pos: tokens.Position{Line: 1, Column: 1},
 				Body: FunctionBlock{
-					pos: tokens.Position{Line: 1, Column: 11},
-					Arguments: ArgumentList{
-						pos:   tokens.Position{Line: 1, Column: 11},
-						Items: make([]Node, 0),
+					Parameters: FunctionParameters{
+						Arguments: ArgumentList{
+							pos:   tokens.Position{Line: 1, Column: 11},
+							Items: make([]Node, 0),
+						},
+						ReturnType: nil,
 					},
-					ReturnType: nil,
 					Body: Block{
 						pos:        tokens.Position{Line: 1, Column: 12},
 						Statements: []BlockStatement{},

@@ -1,10 +1,12 @@
-package build
+package symbols
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hntrl/lang/language/nodes"
 	"github.com/hntrl/lang/language/tokens"
+	"github.com/kr/pretty"
 )
 
 // There's a couple of paradigms you should understand here:
@@ -20,17 +22,94 @@ type SymbolTable struct {
 	local     map[string]*Object
 }
 
-func (st SymbolTable) Get(key string) Object {
-	if obj := st.root.Get(key); obj != nil {
-		return obj
+// store of all used interfaces to be included in gob
+var Interfaces = []interface{}{
+	String{},
+	StringLiteral(""),
+	Double{},
+	DoubleLiteral(0),
+	Float{},
+	FloatLiteral(0),
+	Integer{},
+	IntegerLiteral(0),
+	Boolean{},
+	BooleanLiteral(false),
+	Date{},
+	DateLiteral{},
+	DateTime{},
+	DateTimeLiteral{},
+	AnyClass{},
+	&MapObject{},
+	Type{},
+	TypeObject{},
+	Iterable{},
+	PartialObject{},
+	NilableObject{},
+	Error{},
+	Function{},
+}
+
+func NewSymbolTable(root Object) SymbolTable {
+	return SymbolTable{
+		root:  root,
+		local: make(map[string]*Object),
+		immutable: map[string]Object{
+			"String":   String{},
+			"Double":   Double{},
+			"Float":    Float{},
+			"Int":      Integer{},
+			"Bool":     Boolean{},
+			"Date":     Date{},
+			"DateTime": DateTime{},
+			"print": NewFunction(FunctionOptions{
+				Arguments: []Class{
+					AnyClass{},
+				},
+				Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+					fmt.Println(args[0].Value())
+					return nil, nil
+				},
+			}),
+			"deprecated_debug": NewFunction(FunctionOptions{
+				Arguments: []Class{
+					AnyClass{},
+				},
+				Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+					fmt.Println(pretty.Print(args[0]))
+					return nil, nil
+				},
+			}),
+			"len": NewFunction(FunctionOptions{
+				Arguments: []Class{
+					// FIXME: this means arguments skip validation, but it should be
+					// Indexable. not a good way to put in arguments but it has to since
+					// it's an interface
+					Iterable{ParentType: AnyClass{}},
+				},
+				Returns: Integer{},
+				Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+					if indexable, ok := args[0].(Indexable); ok {
+						return IntegerLiteral(indexable.Len()), nil
+					}
+					return nil, fmt.Errorf("cannot get length of %s", args[0].Class().ClassName())
+				},
+			}),
+		},
 	}
+}
+
+func (st SymbolTable) Get(key string) (Object, error) {
 	if obj := st.immutable[key]; obj != nil {
-		return obj
+		return obj, nil
 	}
 	if obj := st.local[key]; obj != nil {
-		return *obj
+		return *obj, nil
 	}
-	return nil
+	obj, err := st.root.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	return obj, nil
 }
 
 func (st SymbolTable) Clone() SymbolTable {
@@ -51,13 +130,19 @@ func (st SymbolTable) Clone() SymbolTable {
 
 // Returns the Object targeted by a selector
 func (st SymbolTable) ResolveSelector(selector nodes.Selector) (Object, error) {
-	current := st.Get(selector.Members[0])
+	current, err := st.Get(selector.Members[0])
+	if err != nil {
+		return nil, err
+	}
 	resolveChainString := selector.Members[0]
 	if current == nil {
 		return nil, UnknownSelector(selector, selector.Members[0])
 	}
 	for _, member := range selector.Members[1:] {
-		nextObj := current.Get(member)
+		nextObj, err := current.Get(member)
+		if err != nil {
+			return nil, err
+		}
 		if nextObj == nil {
 			return nil, NodeError(selector, "%s has no member %s", resolveChainString, member)
 		}
@@ -81,11 +166,11 @@ func (st SymbolTable) ResolveExpression(expr nodes.Expression) (Object, error) {
 	case nodes.BinaryExpression:
 		return st.ResolveBinaryExpression(expr)
 	case nodes.ObjectPattern:
-		generic, err := st.ParsePropertyList(expr.Properties)
+		mapObject, err := st.ParsePropertyList(expr.Properties)
 		if err != nil {
 			return nil, err
 		}
-		return generic, nil
+		return mapObject, nil
 	case nodes.ValueExpression:
 		return st.ResolveValueExpression(expr)
 	case nodes.Expression:
@@ -112,11 +197,11 @@ func (st SymbolTable) ValidateExpression(expr nodes.Expression) (Class, error) {
 	case nodes.BinaryExpression:
 		return st.ValidateBinaryExpression(expr)
 	case nodes.ObjectPattern:
-		generic, err := st.ValidatePropertyList(expr.Properties)
+		mapObject, err := st.ValidatePropertyList(expr.Properties)
 		if err != nil {
 			return nil, err
 		}
-		return generic, nil
+		return mapObject, nil
 	case nodes.ValueExpression:
 		return st.ValidateValueExpression(expr)
 	case nodes.Expression:
@@ -208,11 +293,11 @@ func (st SymbolTable) ResolveInstanceExpression(expr nodes.InstanceExpression) (
 	if !ok {
 		return nil, NodeError(expr, "%s is not instanceable", strings.Join(expr.Selector.Members, ","))
 	}
-	generic, err := st.ParsePropertyList(expr.Properties)
+	mapObject, err := st.ParsePropertyList(expr.Properties)
 	if err != nil {
 		return nil, err
 	}
-	return Construct(class, generic)
+	return Construct(class, mapObject)
 }
 func (st SymbolTable) ValidateInstanceExpression(expr nodes.InstanceExpression) (Class, error) {
 	targetType, err := st.ResolveSelector(expr.Selector)
@@ -223,11 +308,11 @@ func (st SymbolTable) ValidateInstanceExpression(expr nodes.InstanceExpression) 
 	if !ok {
 		return nil, NodeError(expr, "%s is not instanceable", strings.Join(expr.Selector.Members, ","))
 	}
-	generic, err := st.ValidatePropertyList(expr.Properties)
+	mapObject, err := st.ValidatePropertyList(expr.Properties)
 	if err != nil {
 		return nil, err
 	}
-	err = ShouldConstruct(class, generic)
+	err = ShouldConstruct(class, mapObject)
 	if err != nil {
 		return nil, NodeError(expr, err.Error())
 	}
@@ -245,16 +330,14 @@ func (st SymbolTable) ResolveUnaryExpression(expr nodes.UnaryExpression) (ValueO
 	}
 	switch expr.Operator {
 	case tokens.ADD, tokens.SUB:
-		// TODO: Number is the only accepted class using this logic
-		class := obj.Class()
-		numValue, ok := obj.(NumberLiteral)
-		if !ok {
-			return nil, NodeError(expr, "cannot apply unary %s to %s", expr.Operator, obj.Class().ClassName())
+		val, err := Construct(Number{}, obj)
+		if err != nil {
+			return nil, err
 		}
 		if expr.Operator == tokens.ADD {
-			return Construct(class, NumberLiteral(+float64(numValue)))
+			return Construct(obj.Class(), NumberLiteral(+float64(val.(NumberLiteral))))
 		} else {
-			return Construct(class, NumberLiteral(-float64(numValue)))
+			return Construct(obj.Class(), NumberLiteral(-float64(val.(NumberLiteral))))
 		}
 	case tokens.NOT:
 		boolValue, ok := obj.(BooleanLiteral)
@@ -339,14 +422,15 @@ func (st SymbolTable) ValidateBinaryExpression(expr nodes.BinaryExpression) (Cla
 
 func (st SymbolTable) valueExpressionPredicate(expr nodes.ValueExpression) (string, Object, error) {
 	resolveChainString := ""
-	var current Object
-
 	firstIdent, ok := expr.Members[0].Init.(string)
 	if !ok {
 		return resolveChainString, nil, NodeError(expr, "invalid value expression")
 	}
 
-	current = st.Get(firstIdent)
+	current, err := st.Get(firstIdent)
+	if err != nil {
+		return "", nil, err
+	}
 	resolveChainString += firstIdent
 	if current == nil {
 		return resolveChainString, nil, UnknownSelector(expr, resolveChainString)
@@ -362,7 +446,10 @@ func (st SymbolTable) ResolveValueExpression(expr nodes.ValueExpression) (Object
 	for _, memberExpr := range expr.Members[1:] {
 		switch expr := memberExpr.Init.(type) {
 		case string:
-			current = current.Get(expr)
+			current, err = current.Get(expr)
+			if err != nil {
+				return nil, err
+			}
 			if current == nil {
 				return nil, NoPropertyError(memberExpr, resolveChainString, current, expr)
 			}
@@ -381,9 +468,9 @@ func (st SymbolTable) ResolveValueExpression(expr nodes.ValueExpression) (Object
 				if err != nil {
 					return nil, NodeError(memberExpr, err.Error())
 				}
-				current, err = method.Call(args, &GenericObject{})
+				current, err = method.Call(args, &MapObject{})
 				if err != nil {
-					return nil, NodeError(memberExpr, err.Error())
+					return nil, err
 				}
 				resolveChainString += "()"
 			} else if class, ok := current.(Class); ok {
@@ -462,21 +549,26 @@ func (st SymbolTable) ValidateValueExpression(expr nodes.ValueExpression) (Class
 	for _, memberExpr := range expr.Members[1:] {
 		switch expr := memberExpr.Init.(type) {
 		case string:
-			if prop := current.Get(expr); prop != nil {
-				current = current.Get(expr)
-				if current == nil {
-					return nil, NoPropertyError(memberExpr, resolveChainString, current, expr)
-				}
+			prop, err := current.Get(expr)
+			if err != nil {
+				return nil, err
+			}
+			if prop != nil {
+				current = prop
 			} else if class, ok := current.(ObjectClass); ok {
 				if field, ok := class.Fields()[expr]; ok {
 					current = field
-				} else if obj := class.Get(expr); obj != nil {
-					current = obj
 				} else {
-					return nil, NoPropertyError(memberExpr, resolveChainString, current, expr)
+					obj, err := class.Get(expr)
+					if err != nil {
+						return nil, err
+					}
+					if obj != nil {
+						current = obj
+					} else {
+						return nil, NoPropertyError(memberExpr, resolveChainString, current, expr)
+					}
 				}
-			} else {
-				return nil, NoPropertyError(memberExpr, resolveChainString, current, expr)
 			}
 			resolveChainString += "." + expr
 		case nodes.CallExpression:
@@ -558,11 +650,11 @@ func (st SymbolTable) ValidateValueExpression(expr nodes.ValueExpression) (Class
 }
 
 // ---
-// PROPERTY LIST (GENERIC OBJECT)
+// PROPERTY LIST (MAP OBJECT)
 // ---
 
-func (st SymbolTable) ParsePropertyList(props nodes.PropertyList) (*GenericObject, error) {
-	generic := NewGenericObject()
+func (st SymbolTable) ParsePropertyList(props nodes.PropertyList) (*MapObject, error) {
+	mapObject := NewMapObject()
 	for _, prop := range props {
 		switch expr := prop.(type) {
 		case nodes.Property:
@@ -570,8 +662,8 @@ func (st SymbolTable) ParsePropertyList(props nodes.PropertyList) (*GenericObjec
 			if err != nil {
 				return nil, err
 			}
-			generic.fields[expr.Key] = obj.Class()
-			generic.data[expr.Key] = obj
+			mapObject.Properties[expr.Key] = obj.Class()
+			mapObject.Data[expr.Key] = obj
 		case nodes.SpreadElement:
 			obj, err := st.ResolveValueObject(expr.Init)
 			if err != nil {
@@ -582,12 +674,15 @@ func (st SymbolTable) ParsePropertyList(props nodes.PropertyList) (*GenericObjec
 				return nil, NodeError(expr, "Cannot spread non-object")
 			}
 			for key := range objectClass.Fields() {
-				val := obj.Get(key)
+				val, err := obj.Get(key)
+				if err != nil {
+					return nil, err
+				}
 				if val == nil {
-					generic.data[key] = NilLiteral{}
+					mapObject.Data[key] = NilLiteral{}
 				} else if innerValueObj, ok := val.(ValueObject); ok {
-					generic.fields[key] = innerValueObj.Class()
-					generic.data[key] = innerValueObj
+					mapObject.Properties[key] = innerValueObj.Class()
+					mapObject.Data[key] = innerValueObj
 				} else {
 					return nil, AmbiguousObjectError(expr, obj)
 				}
@@ -596,10 +691,10 @@ func (st SymbolTable) ParsePropertyList(props nodes.PropertyList) (*GenericObjec
 			return nil, NodeError(prop, "invalid property list")
 		}
 	}
-	return generic, nil
+	return mapObject, nil
 }
-func (st SymbolTable) ValidatePropertyList(props nodes.PropertyList) (*GenericObject, error) {
-	generic := NewGenericObject()
+func (st SymbolTable) ValidatePropertyList(props nodes.PropertyList) (*MapObject, error) {
+	mapObject := NewMapObject()
 	for _, prop := range props {
 		switch expr := prop.(type) {
 		case nodes.Property:
@@ -607,7 +702,7 @@ func (st SymbolTable) ValidatePropertyList(props nodes.PropertyList) (*GenericOb
 			if err != nil {
 				return nil, err
 			}
-			generic.fields[expr.Key] = obj
+			mapObject.Properties[expr.Key] = obj
 		case nodes.SpreadElement:
 			obj, err := st.ValidateExpression(expr.Init)
 			if err != nil {
@@ -618,13 +713,13 @@ func (st SymbolTable) ValidatePropertyList(props nodes.PropertyList) (*GenericOb
 				return nil, NodeError(expr, "Cannot spread non-object")
 			}
 			for key, value := range objectClass.Fields() {
-				generic.fields[key] = value
+				mapObject.Properties[key] = value
 			}
 		default:
 			return nil, NodeError(prop, "invalid property list")
 		}
 	}
-	return generic, nil
+	return mapObject, nil
 }
 
 // ---
@@ -641,11 +736,18 @@ func (st SymbolTable) ResolveTypeExpression(expr nodes.TypeExpression) (Class, e
 	if !ok {
 		return nil, InvalidTypeError(expr, parentType)
 	}
+	if expr.IsPartial {
+		objectClass, ok := class.(ObjectClass)
+		if !ok {
+			return nil, fmt.Errorf("cannot take partial of non-object type %s", parentType)
+		}
+		class = &PartialObject{ClassObject: objectClass}
+	}
 	if expr.IsArray {
 		class = NewIterable(class, 0)
 	}
 	if expr.IsOptional {
-		class = NilableObject{class, nil}
+		class = NewOptionalClass(class)
 	}
 	return class, nil
 }

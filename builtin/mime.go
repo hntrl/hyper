@@ -3,34 +3,33 @@ package builtin
 import (
 	"fmt"
 
-	"github.com/hntrl/lang/build"
+	"github.com/hntrl/lang/symbols"
 )
 
 type MimeTypesPackage struct{}
 
-func (mt MimeTypesPackage) Get(key string) build.Object {
+func (mt MimeTypesPackage) Get(key string) (symbols.Object, error) {
 	switch key {
 	case "MimeType":
-		return MimeType{}
-	default:
-		return nil
+		return MimeType{}, nil
 	}
+	return nil, nil
 }
 
 type MimeType struct {
-	typeString string `hash:"ignore"`
+	TypeString string `hash:"ignore"`
 }
 
 func (mt MimeType) ClassName() string {
 	return "MimeType"
 }
-func (mt MimeType) Fields() map[string]build.Object {
+func (mt MimeType) Fields() map[string]symbols.Object {
 	return nil
 }
-func (mt MimeType) Constructors() build.ConstructorMap {
-	csMap := build.NewConstructorMap()
-	csMap.AddConstructor(build.String{}, func(obj build.ValueObject) (build.ValueObject, error) {
-		str := string(obj.(build.StringLiteral))
+func (mt MimeType) Constructors() symbols.ConstructorMap {
+	csMap := symbols.NewConstructorMap()
+	csMap.AddConstructor(symbols.String{}, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
+		str := string(obj.(symbols.StringLiteral))
 		for _, v := range types {
 			if v == str {
 				return MimeType{v}, nil
@@ -40,18 +39,18 @@ func (mt MimeType) Constructors() build.ConstructorMap {
 	})
 	return csMap
 }
-func (mt MimeType) Get(key string) build.Object {
-	return nil
+func (mt MimeType) Get(key string) (symbols.Object, error) {
+	return nil, nil
 }
 
-func (mt MimeType) Class() build.Class {
+func (mt MimeType) Class() symbols.Class {
 	return mt
 }
 func (mt MimeType) Value() interface{} {
-	return mt.typeString
+	return mt.TypeString
 }
-func (mt MimeType) Set(key string, obj build.ValueObject) error {
-	return build.CannotSetPropertyError(key, mt)
+func (mt MimeType) Set(key string, obj symbols.ValueObject) error {
+	return symbols.CannotSetPropertyError(key, mt)
 }
 
 var types = []string{
