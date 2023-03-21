@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,16 +32,15 @@ func NewContextBuilder() *ContextBuilder {
 	return bd
 }
 
-func ContextBuilderFromBytes(buffer bytes.Buffer) (*ContextBuilder, error) {
-	var bd ContextBuilder
-	dec := gob.NewDecoder(&buffer)
+func (bd *ContextBuilder) ParseReader(reader io.Reader) (*Context, error) {
+	dec := gob.NewDecoder(reader)
 	err := dec.Decode(&bd)
 	if err != nil {
 		return nil, err
 	}
 	for key, ctx := range bd.Contexts {
 		if key != bd.RootContext {
-			ctx.builder = &bd
+			ctx.builder = bd
 			ctx.imports = make(map[string]symbols.Object)
 			ctx.unresolvedItems = make(map[string]nodes.Node)
 			for _, pkgName := range ctx.UsedPackages {
@@ -61,11 +61,11 @@ func ContextBuilderFromBytes(buffer bytes.Buffer) (*ContextBuilder, error) {
 		}
 	}
 	rootContext := bd.GetContext(bd.RootContext)
-	_, err = bd.ParseContext(rootContext.Manifest, bd.RootContext)
+	ctx, err := bd.ParseContext(rootContext.Manifest, bd.RootContext)
 	if err != nil {
 		return nil, err
 	}
-	return &bd, nil
+	return ctx, nil
 }
 
 func (bd *ContextBuilder) ParseContext(node nodes.Manifest, path string) (*Context, error) {
