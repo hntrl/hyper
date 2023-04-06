@@ -285,22 +285,26 @@ func (st *SymbolTable) ResolveAssignmentExpression(expr nodes.AssignmentExpressi
 	}
 
 	if len(expr.Name.Members) > 1 {
-		var eval func(Object, []string) error
-		eval = func(current Object, members []string) error {
-			valueObj, ok := current.(ValueObject)
-			if !ok {
-				return NodeError(expr, "cannot assign to non-value object")
-			}
+		var eval func(ValueObject, []string) error
+		eval = func(current ValueObject, members []string) error {
 			if len(members) == 1 {
-				return valueObj.Set(members[0], object)
+				return current.Set(members[0], object)
 			}
-			prop, err := valueObj.Get(members[0])
+			prop, err := current.Get(members[0])
 			if err != nil {
 				return err
 			}
-			return eval(prop, members[1:])
+			propObj, ok := prop.(ValueObject)
+			if !ok {
+				return fmt.Errorf("cannot set property on non-value object")
+			}
+			return eval(propObj, members[1:])
 		}
-		err = eval(*parentObject, expr.Name.Members[1:])
+		valueObj, ok := (*parentObject).(ValueObject)
+		if !ok {
+			return fmt.Errorf("cannot set property on non-value object")
+		}
+		err = eval(valueObj, expr.Name.Members[1:])
 		if err != nil {
 			return err
 		}

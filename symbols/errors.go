@@ -13,7 +13,10 @@ type ParserError struct {
 }
 
 func (e ParserError) Error() string {
-	return fmt.Sprintf("(%s) %s", e.Node.Pos(), e.Msg)
+	if e.Node != nil {
+		return fmt.Sprintf("(%s) %s", e.Node.Pos(), e.Msg)
+	}
+	return e.Msg
 }
 
 type ParserErrorList []ParserError
