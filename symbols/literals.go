@@ -434,58 +434,58 @@ func (il IntegerLiteral) Get(key string) (Object, error) {
 	return nil, nil
 }
 
-type Date struct{}
+// type Date struct{}
 
-func (d Date) ClassName() string {
-	return "Date"
-}
-func (d Date) Constructors() ConstructorMap {
-	csMap := NewConstructorMap()
-	csMap.AddConstructor(Date{}, func(obj ValueObject) (ValueObject, error) {
-		return DateLiteral{}, nil
-	})
-	return csMap
-}
+// func (d Date) ClassName() string {
+// 	return "Date"
+// }
+// func (d Date) Constructors() ConstructorMap {
+// 	csMap := NewConstructorMap()
+// 	csMap.AddConstructor(Date{}, func(obj ValueObject) (ValueObject, error) {
+// 		return DateLiteral{}, nil
+// 	})
+// 	return csMap
+// }
 
-func (d Date) Get(key string) (Object, error) {
-	switch key {
-	case "now":
-		return NewFunction(FunctionOptions{
-			Returns: Date{},
-			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				return DateLiteral{t: time.Now()}, nil
-			},
-		}), nil
-	}
-	return nil, nil
-}
+// func (d Date) Get(key string) (Object, error) {
+// 	switch key {
+// 	case "now":
+// 		return NewFunction(FunctionOptions{
+// 			Returns: Date{},
+// 			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+// 				return DateLiteral{t: time.Now()}, nil
+// 			},
+// 		}), nil
+// 	}
+// 	return nil, nil
+// }
 
-type DateLiteral struct {
-	t time.Time
-}
+// type DateLiteral struct {
+// 	t time.Time
+// }
 
-func (dl DateLiteral) Class() Class {
-	return Date{}
-}
-func (dl DateLiteral) Value() interface{} {
-	return dl.t
-}
-func (dl DateLiteral) Set(key string, obj ValueObject) error {
-	return CannotSetPropertyError(key, dl)
-}
-func (dl DateLiteral) Get(key string) (Object, error) {
-	methods := map[string]Object{
-		"format": NewFunction(FunctionOptions{
-			Arguments: []Class{String{}},
-			Returns:   String{},
-			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				fmt := args[0].(StringLiteral)
-				return StringLiteral(dl.t.Format(string(fmt))), nil
-			},
-		}),
-	}
-	return methods[key], nil
-}
+// func (dl DateLiteral) Class() Class {
+// 	return Date{}
+// }
+// func (dl DateLiteral) Value() interface{} {
+// 	return dl.t
+// }
+// func (dl DateLiteral) Set(key string, obj ValueObject) error {
+// 	return CannotSetPropertyError(key, dl)
+// }
+// func (dl DateLiteral) Get(key string) (Object, error) {
+// 	methods := map[string]Object{
+// 		"format": NewFunction(FunctionOptions{
+// 			Arguments: []Class{String{}},
+// 			Returns:   String{},
+// 			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+// 				fmt := args[0].(StringLiteral)
+// 				return StringLiteral(dl.t.Format(string(fmt))), nil
+// 			},
+// 		}),
+// 	}
+// 	return methods[key], nil
+// }
 
 type DateTime struct{}
 
@@ -500,20 +500,45 @@ func (d DateTime) Constructors() ConstructorMap {
 			t: time.t,
 		}, nil
 	})
+	csMap.AddConstructor(MapObject{}, func(obj ValueObject) (ValueObject, error) {
+		mapObj := obj.(*MapObject)
+		dateObj, ok := mapObj.Data["$date"]
+		if !ok {
+			return nil, fmt.Errorf("malformed date object")
+		}
+		strLit, ok := dateObj.(StringLiteral)
+		if !ok {
+			return nil, fmt.Errorf("malformed date object")
+		}
+		time, err := time.Parse(time.RFC3339, string(strLit))
+		if err != nil {
+			return nil, err
+		}
+		return DateTimeLiteral{t: time}, nil
+	})
 	return csMap
 }
 
 func (d DateTime) Get(key string) (Object, error) {
-	switch key {
-	case "now":
-		return NewFunction(FunctionOptions{
+	methods := map[string]Object{
+		"now": NewFunction(FunctionOptions{
 			Returns: DateTime{},
 			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
 				return DateTimeLiteral{t: time.Now()}, nil
 			},
-		}), nil
+		}),
+		// TODO: this function should be apart of `DateTimeLiteral`, but because of the weird way I set up inheritance we get this. (sorry)
+		"format": NewFunction(FunctionOptions{
+			Arguments: []Class{DateTime{}, String{}},
+			Returns:   String{},
+			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
+				dt := args[0].(DateTimeLiteral)
+				fmt := args[1].(StringLiteral)
+				return StringLiteral(dt.t.Format(string(fmt))), nil
+			},
+		}),
 	}
-	return nil, nil
+	return methods[key], nil
 }
 
 type DateTimeLiteral struct {
@@ -524,21 +549,11 @@ func (dl DateTimeLiteral) Class() Class {
 	return DateTime{}
 }
 func (dl DateTimeLiteral) Value() interface{} {
-	return dl.t
+	return map[string]string{"$date": dl.t.Format(time.RFC3339)}
 }
 func (dl DateTimeLiteral) Set(key string, obj ValueObject) error {
 	return CannotSetPropertyError(key, dl)
 }
 func (dl DateTimeLiteral) Get(key string) (Object, error) {
-	methods := map[string]Object{
-		"format": NewFunction(FunctionOptions{
-			Arguments: []Class{String{}},
-			Returns:   String{},
-			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				fmt := args[0].(StringLiteral)
-				return StringLiteral(dl.t.Format(string(fmt))), nil
-			},
-		}),
-	}
-	return methods[key], nil
+	return nil, nil
 }
