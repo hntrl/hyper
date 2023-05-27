@@ -9,10 +9,3 @@ var Packages = map[string]symbols.Object{
 	"request": RequestPackage{},
 	"mime":    MimeTypesPackage{},
 }
-
-var Classes = map[string]symbols.Class{
-	"MimeType":      MimeType{},
-	"RequestConfig": RequestConfig{},
-	"HTTPResponse":  HTTPResponse{},
-	"Dimension":     Dimension{},
-}

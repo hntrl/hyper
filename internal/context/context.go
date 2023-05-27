@@ -1,10 +1,7 @@
 package context
 
 import (
-	"bytes"
-	"encoding/gob"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,42 +26,6 @@ func NewContextBuilder() *ContextBuilder {
 	}
 	bd.registerDefaults()
 	return bd
-}
-
-func (bd *ContextBuilder) ParseReader(reader io.Reader) (*Context, error) {
-	dec := gob.NewDecoder(reader)
-	err := dec.Decode(&bd)
-	if err != nil {
-		return nil, err
-	}
-	for key, ctx := range bd.Contexts {
-		if key != bd.RootContext {
-			ctx.builder = bd
-			ctx.imports = make(map[string]symbols.Object)
-			ctx.unresolvedItems = make(map[string]ast.Node)
-			for _, pkgName := range ctx.UsedPackages {
-				obj, err := bd.GetPackage(pkgName)
-				if err != nil {
-					return nil, err
-				}
-				switch pkg := obj.(type) {
-				case *Context:
-					err := addContextToImports(ctx, pkg)
-					if err != nil {
-						return nil, err
-					}
-				default:
-					ctx.imports[pkgName] = pkg
-				}
-			}
-		}
-	}
-	rootContext := bd.GetContext(bd.RootContext)
-	ctx, err := bd.ParseContext(rootContext.Manifest, bd.RootContext)
-	if err != nil {
-		return nil, err
-	}
-	return ctx, nil
 }
 
 func (bd *ContextBuilder) ParseContext(node ast.Manifest, path string) (*Context, error) {
@@ -180,30 +141,11 @@ func (bd *ContextBuilder) GetPackage(pkg string) (symbols.Object, error) {
 }
 
 func (bd *ContextBuilder) registerDefaults() {
-	for _, pkg := range stdlib.Packages {
-		gob.Register(pkg)
-	}
-	for _, intf := range symbols.Interfaces {
-		gob.Register(intf)
-	}
-	for _, class := range stdlib.Classes {
-		gob.Register(class)
-	}
-	gob.Register(Domain{})
-	gob.Register(RemoteContext{})
 	bd.RegisterInterface("type", TypeInterface{})
 }
 
 func (bd *ContextBuilder) RegisterInterface(key string, intf interface{}) {
-	gob.Register(intf)
 	bd.Interfaces[key] = intf
-}
-
-func (bd *ContextBuilder) Serialize() (bytes.Buffer, error) {
-	var buffer bytes.Buffer
-	enc := gob.NewEncoder(&buffer)
-	err := enc.Encode(bd)
-	return buffer, err
 }
 
 func (bd *ContextBuilder) getInterface(target string) (interface{}, error) {

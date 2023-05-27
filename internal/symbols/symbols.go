@@ -22,33 +22,6 @@ type SymbolTable struct {
 	local     map[string]*Object
 }
 
-// store of all used interfaces to be included in gob
-var Interfaces = []interface{}{
-	String{},
-	StringLiteral(""),
-	Double{},
-	DoubleLiteral(0),
-	Float{},
-	FloatLiteral(0),
-	Integer{},
-	IntegerLiteral(0),
-	Boolean{},
-	BooleanLiteral(false),
-	// Date{},
-	// DateLiteral{},
-	DateTime{},
-	DateTimeLiteral{},
-	AnyClass{},
-	&MapObject{},
-	Type{},
-	TypeObject{},
-	Iterable{},
-	PartialObject{},
-	NilableObject{},
-	Error{},
-	Function{},
-}
-
 func NewSymbolTable(root Object) SymbolTable {
 	return SymbolTable{
 		root:  root,
