@@ -18,14 +18,14 @@ func init() {
 
 var docCommand = &cobra.Command{
 	Use:   "doc [FILE]",
-	Short: "Prints prints out all the objects exported by a Schemafile",
+	Short: "Prints out all the objects exported by a hyper context",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		dir, err := os.Getwd()
 		if err != nil {
 			panic(err)
 		}
-		inFile := "./Schemafile"
+		inFile := "./index.hyper"
 		if len(args) > 0 {
 			inFile = args[0]
 		}
