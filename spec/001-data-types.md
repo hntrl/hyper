@@ -27,7 +27,7 @@ Class descriptors are used to define rules and isolate errors in semantic analys
 
 The constructors descriptor is a set of [constructors (annotation needed)] that establishes the logic of instanceating the parent class from another class.
 
---Define constructor signature (fromClass, toClass, (ValueObject<fromClass>) => ValueObject<toClass>)--
+--Define constructor signature (fromClass, toClass, (ValueObject\<fromClass>) => ValueObject\<toClass>)--
 
 ##### 1.1.3.2 `Operations` Class Descriptor
 
@@ -37,7 +37,7 @@ The operations descriptor is a set of operator methods used in evaluating certai
 
 - An _operator method_ associates a function to a binary operator and two different classes. The method returns a new value object with the class of the left most operand and with state that corresponds to the desired result of the expression.
 
---Define operator method signature (leftOperandClass, rightOperandClass, operator, (ValueObject<leftOperandClass>, ValueObject<rightOperandClass>) => ValueObject<leftOperandClass>)--
+--Define operator method signature (leftOperandClass, rightOperandClass, operator, (ValueObject\<leftOperandClass>, ValueObject\<rightOperandClass>) => ValueObject\<leftOperandClass>)--
 
 ##### 1.1.3.3 `Comparators` Class Desciptor
 
@@ -45,7 +45,7 @@ The comparators descriptor is a set of comparator methods used when evaluating c
 
 - A _comparator method_ associates a function to a comparator operator and two different classes. The method returns a `Boolean` reflective of the desired result of the expression.
 
---Define comparator method signature (leftOperandClass, rightOperandClass, operator, (ValueObject<leftOperandClass>, ValueObject<rightOperandClass>) => Boolean)--
+--Define comparator method signature (leftOperandClass, rightOperandClass, operator, (ValueObject\<leftOperandClass>, ValueObject\<rightOperandClass>) => Boolean)--
 
 ##### 1.1.3.4 `Properties` Class Descriptor
 
@@ -68,7 +68,15 @@ The enumerable descriptor contains a set of zero or more [methods (annotation ne
 
 ##### 1.1.3.6 `Prototype` Class Descriptor
 
-The prototype descriptor defines a collection of [methods (annotation needed)] that will be accessible from the value object. Each method can return any class and will be called with an argument list with the sole argument being the current value object.
+The prototype descriptor defines a collection of key values that associate read-only prototype methods that will be accessible as properties from the value object.
+
+- A _prototype method_ is a method that provides an additional argument containing the value of it's parent value object. Each method will be called with an argument list with the first argument being the value object followed by any arguments that are passed into the method.
+
+`ValueObject.prototypeMethod(arg1, arg2): returnedObject -> (ValueObject, arg1, arg2) => returnedObject`
+
+The inclusion of a prototype descriptor doesn't imply prototype-based inheritance for a value object in the sense that the methods exist within scope of the object in the host environment. Rather, expressions that target a value object's properties are evaluated by looking up the class prototype methods, then by any properties defined in the _Properties_ class descriptor.
+
+Prototype methods do not exist as properties on the class itself, only on the value object.
 
 <!-- TODO: write these
 ### 1.2 Language Primitives
@@ -99,4 +107,8 @@ The prototype descriptor defines a collection of [methods (annotation needed)] t
 
 #### 1.3.2 `Iterable`
 
-#### 1.3.3 `Function` -->
+#### 1.3.3 `Function`
+
+##### 1.3.3.1 Contextual information
+
+##### 1.3.3.2 `guard` Directive -->
