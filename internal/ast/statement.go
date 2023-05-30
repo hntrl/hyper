@@ -9,25 +9,25 @@ import (
 
 // FieldStatement ::
 //
-//	| COMMENT? AssignmentStatement
-//	| COMMENT? EnumStatement
-//	| COMMENT? TypeStatement
+//	| COMMENT? FieldAssignmentExpression
+//	| COMMENT? EnumExpression
+//	| COMMENT? FieldExpression
 type FieldStatement struct {
 	pos     tokens.Position
-	Init    Node `types:"AssignmentStatement,EnumStatement,TypeStatement"`
+	Init    Node `types:"FieldAssignmentExpression,EnumExpression,FieldExpression"`
 	Comment string
 }
 
 func (f FieldStatement) Validate() error {
-	if as, ok := f.Init.(AssignmentStatement); ok {
+	if as, ok := f.Init.(FieldAssignmentExpression); ok {
 		if err := as.Validate(); err != nil {
 			return err
 		}
-	} else if es, ok := f.Init.(EnumStatement); ok {
+	} else if es, ok := f.Init.(EnumExpression); ok {
 		if err := es.Validate(); err != nil {
 			return err
 		}
-	} else if ts, ok := f.Init.(TypeStatement); ok {
+	} else if ts, ok := f.Init.(FieldExpression); ok {
 		if err := ts.Validate(); err != nil {
 			return err
 		}
@@ -68,19 +68,19 @@ func ParseFieldStatement(p *parser.Parser) (*FieldStatement, error) {
 	p.Rollback(startIndex)
 	switch startingToken {
 	case tokens.ASSIGN:
-		as, err := ParseAssignmentStatement(p)
+		as, err := ParseFieldAssignmentExpression(p)
 		if err != nil {
 			return nil, err
 		}
 		field.Init = *as
 	case tokens.STRING:
-		es, err := ParseEnumStatement(p)
+		es, err := ParseEnumExpression(p)
 		if err != nil {
 			return nil, err
 		}
 		field.Init = *es
 	default:
-		ts, err := ParseTypeStatement(p)
+		ts, err := ParseFieldExpression(p)
 		if err != nil {
 			return nil, err
 		}
@@ -89,27 +89,27 @@ func ParseFieldStatement(p *parser.Parser) (*FieldStatement, error) {
 	return &field, nil
 }
 
-// AssignmentStatement :: IDENT ASSIGN Expression
-type AssignmentStatement struct {
+// FieldAssignmentExpression :: IDENT ASSIGN Expression
+type FieldAssignmentExpression struct {
 	pos  tokens.Position
 	Name string
 	Init Expression
 }
 
-func (a AssignmentStatement) Validate() error {
+func (a FieldAssignmentExpression) Validate() error {
 	if err := a.Init.Validate(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (a AssignmentStatement) Pos() tokens.Position {
+func (a FieldAssignmentExpression) Pos() tokens.Position {
 	return a.pos
 }
 
-func ParseAssignmentStatement(p *parser.Parser) (*AssignmentStatement, error) {
+func ParseFieldAssignmentExpression(p *parser.Parser) (*FieldAssignmentExpression, error) {
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	as := AssignmentStatement{pos: pos}
+	as := FieldAssignmentExpression{pos: pos}
 	if tok != tokens.IDENT {
 		return nil, ExpectedError(pos, tokens.IDENT, lit)
 	}
@@ -129,24 +129,24 @@ func ParseAssignmentStatement(p *parser.Parser) (*AssignmentStatement, error) {
 	return &as, nil
 }
 
-// EnumStatement :: IDENT STRING
-type EnumStatement struct {
+// EnumExpression :: IDENT STRING
+type EnumExpression struct {
 	pos  tokens.Position
 	Name string
 	Init string
 }
 
-func (e EnumStatement) Validate() error {
+func (e EnumExpression) Validate() error {
 	return nil
 }
 
-func (e EnumStatement) Pos() tokens.Position {
+func (e EnumExpression) Pos() tokens.Position {
 	return e.pos
 }
 
-func ParseEnumStatement(p *parser.Parser) (*EnumStatement, error) {
+func ParseEnumExpression(p *parser.Parser) (*EnumExpression, error) {
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	es := EnumStatement{pos: pos}
+	es := EnumExpression{pos: pos}
 	if tok != tokens.IDENT {
 		return nil, ExpectedError(pos, tokens.IDENT, lit)
 	}
@@ -161,27 +161,27 @@ func ParseEnumStatement(p *parser.Parser) (*EnumStatement, error) {
 	return &es, nil
 }
 
-// TypeStatement :: IDENT TypeExpression
-type TypeStatement struct {
+// FieldExpression :: IDENT TypeExpression
+type FieldExpression struct {
 	pos  tokens.Position
 	Name string
 	Init TypeExpression
 }
 
-func (t TypeStatement) Validate() error {
+func (t FieldExpression) Validate() error {
 	if err := t.Init.Validate(); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (t TypeStatement) Pos() tokens.Position {
+func (t FieldExpression) Pos() tokens.Position {
 	return t.pos
 }
 
-func ParseTypeStatement(p *parser.Parser) (*TypeStatement, error) {
+func ParseFieldExpression(p *parser.Parser) (*FieldExpression, error) {
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	ts := TypeStatement{pos: pos}
+	ts := FieldExpression{pos: pos}
 	if tok != tokens.IDENT {
 		return nil, ExpectedError(pos, tokens.IDENT, lit)
 	}

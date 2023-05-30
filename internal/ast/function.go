@@ -378,7 +378,7 @@ func ParseInlineBlock(p *parser.Parser) (*InlineBlock, error) {
 // BlockStatement :: Expression
 //
 //	| DeclarationStatement
-//	| AssignmentExpression
+//	| AssignmentStatement
 //	| IfStatement
 //	| WhileStatement
 //	| ForStatement
@@ -389,7 +389,7 @@ func ParseInlineBlock(p *parser.Parser) (*InlineBlock, error) {
 //	| ReturnStatement
 //	| ThrowStatement
 type BlockStatement struct {
-	Init Node `types:"Expression,DeclarationStatement,AssignmentExpression,IfStatement,WhileStatement,ForStatement,ContinueStatement,BreakStatement,SwitchBlock,GuardStatement,ReturnStatement,ThrowStatement"`
+	Init Node `types:"Expression,DeclarationStatement,AssignmentStatement,IfStatement,WhileStatement,ForStatement,ContinueStatement,BreakStatement,SwitchBlock,GuardStatement,ReturnStatement,ThrowStatement"`
 }
 
 func (b BlockStatement) Validate() error {
@@ -401,7 +401,7 @@ func (b BlockStatement) Validate() error {
 		if err := decl.Validate(); err != nil {
 			return err
 		}
-	} else if assign, ok := b.Init.(AssignmentExpression); ok {
+	} else if assign, ok := b.Init.(AssignmentStatement); ok {
 		if err := assign.Validate(); err != nil {
 			return err
 		}
@@ -539,7 +539,7 @@ func ParseBlockStatement(p *parser.Parser) (*BlockStatement, error) {
 				}
 				p.Rollback(startIndex)
 				if tok == tokens.INC || tok == tokens.DEC || tok.IsAssignmentOperator() {
-					assign, err := ParseAssignmentExpression(p)
+					assign, err := ParseAssignmentStatement(p)
 					if err != nil {
 						return nil, err
 					}
@@ -598,6 +598,61 @@ func ParseDeclarationStatement(p *parser.Parser) (*DeclarationStatement, error) 
 	stmt.Init = *expr
 
 	return &stmt, nil
+}
+
+// AssignmentStatement :: Selector token(IsAssignmentOperator) Expression
+//
+//	| Selector (INC | DEC)
+type AssignmentStatement struct {
+	pos      tokens.Position
+	Name     Selector
+	Operator tokens.Token
+	Init     Expression
+}
+
+func (a AssignmentStatement) Validate() error {
+	if err := a.Name.Validate(); err != nil {
+		return err
+	}
+	if !a.Operator.IsAssignmentOperator() {
+		return fmt.Errorf("AssignmentStatement has invalid operator: %s", a.Operator)
+	}
+	if err := a.Init.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (a AssignmentStatement) Pos() tokens.Position {
+	return a.pos
+}
+
+func ParseAssignmentStatement(p *parser.Parser) (*AssignmentStatement, error) {
+	name, err := ParseSelector(p)
+	if err != nil {
+		return nil, err
+	}
+	assign := AssignmentStatement{pos: name.pos, Name: *name}
+
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok == tokens.INC || tok == tokens.DEC {
+		if tok == tokens.INC {
+			assign.Operator = tokens.ADD
+		} else {
+			assign.Operator = tokens.SUB
+		}
+		assign.Init = Expression{pos, Literal{pos, int64(1)}}
+	} else if tok.IsAssignmentOperator() {
+		assign.Operator = tok
+		init, err := ParseExpression(p)
+		if err != nil {
+			return nil, err
+		}
+		assign.Init = *init
+	} else {
+		return nil, ExpectedError(pos, tokens.ILLEGAL, lit)
+	}
+	return &assign, nil
 }
 
 // IfStatement :: IF LPAREN Expression RPAREN InlineBlock (ELSE IfStatement)? (ELSE Block)?
@@ -819,12 +874,12 @@ func ParseForStatement(p *parser.Parser) (*ForStatement, error) {
 	return &stmt, nil
 }
 
-// ForCondition :: (DeclarationStatement | Expression) SEMICOLON Expression (SEMICOLON (Expression | AssignmentExpression))?
+// ForCondition :: (DeclarationStatement | Expression) SEMICOLON Expression (SEMICOLON (Expression | AssignmentStatement))?
 type ForCondition struct {
 	pos       tokens.Position
 	Init      *DeclarationStatement
 	Condition Expression
-	Update    Node `types:"Expression,AssignmentExpression"`
+	Update    Node `types:"Expression,AssignmentStatement"`
 }
 
 func (f ForCondition) Validate() error {
@@ -838,7 +893,7 @@ func (f ForCondition) Validate() error {
 		if err := expr.Validate(); err != nil {
 			return err
 		}
-	} else if assign, ok := f.Update.(AssignmentExpression); ok {
+	} else if assign, ok := f.Update.(AssignmentStatement); ok {
 		if err := assign.Validate(); err != nil {
 			return err
 		}
@@ -895,7 +950,7 @@ func ParseForCondition(p *parser.Parser) (*ForCondition, error) {
 		_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 		p.Rollback(startIndex)
 		if tok.IsAssignmentOperator() {
-			assign, err := ParseAssignmentExpression(p)
+			assign, err := ParseAssignmentStatement(p)
 			if err != nil {
 				return nil, err
 			}

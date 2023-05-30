@@ -59,21 +59,21 @@ RemoteContextMethod :: COMMENT? PRIVATE? REMOTE IDENT IDENT FunctionParameters
   * Parameters: FunctionParameters
   * Comment: string
 
-FieldStatement :: COMMENT? AssignmentStatement
-                | COMMENT? EnumStatement
-                | COMMENT? TypeStatement
-  * Init: (AssignmentStatement | EnumStatement | TypeStatement)
+FieldStatement :: COMMENT? FieldAssignmentExpression
+                | COMMENT? EnumExpression
+                | COMMENT? FieldExpression
+  * Init: (FieldAssignmentExpression | EnumExpression | FieldExpression)
   * Comment: string
 
-AssignmentStatement :: IDENT ASSIGN Expression
+FieldAssignmentExpression :: IDENT ASSIGN Expression
   * Name: string
   * Init: Expression
 
-EnumStatement :: IDENT STRING
+EnumExpression :: IDENT STRING
   * Name: string
   * Value: string
 
-TypeStatement :: IDENT TypeExpression
+FieldExpression :: IDENT TypeExpression
   * Name: string
   * Init: TypeExpression
 
@@ -134,12 +134,6 @@ IndexExpression :: LSQUARE Expression? SEMICOLON? Expression? RSQUARE
   * IsRange: bool
   * Right: Expression?
 
-AssignmentExpression :: Selector token(IsAssignmentOperator) Expression
-                      | Selector (INC | DEC)
-  * Name: Selector
-  * Operator: token(IsAssignmentOperator) | (INC | DEC)
-  * Init: Expression
-
 ObjectPattern :: LCURLY PropertyList RCURLY
   * Properties: PropertyList
 
@@ -184,7 +178,7 @@ InlineBlock :: (BlockStatement | LCURLY Block RCURLY)
 
 BlockStatement :: Expression
                 | DeclarationStatement
-                | AssignmentExpression
+                | AssignmentStatement
                 | IfStatement
                 | WhileStatement
                 | ForStatement
@@ -194,10 +188,16 @@ BlockStatement :: Expression
                 | GuardStatement
                 | ReturnStatement
                 | ThrowStatement
-  * Init: (Expression | DeclarationStatement | AssignmentExpression | IfStatement | WhileStatement | ForStatement | ContinueStatement | BreakStatement | SwitchBlock | GuardStatement | ReturnStatement | ThrowStatement)
+  * Init: (Expression | DeclarationStatement | AssignmentStatement | IfStatement | WhileStatement | ForStatement | ContinueStatement | BreakStatement | SwitchBlock | GuardStatement | ReturnStatement | ThrowStatement)
 
 DeclarationStatement :: IDENT DEFINE Expression
   * Name: string
+  * Init: Expression
+
+AssignmentStatement :: Selector token(IsAssignmentOperator) Expression
+                    | Selector (INC | DEC)
+  * Name: Selector
+  * Operator: token(IsAssignmentOperator) | (INC | DEC)
   * Init: Expression
 
 IfStatement :: IF LPAREN Expression RPAREN InlineBlock (ELSE IfStatement)? (ELSE Block)?
@@ -213,10 +213,10 @@ ForStatement :: FOR LPAREN (ForCondition | RangeCondition) RPAREN InlineBlock
   * Condition: (ForCondition | RangeCondition)
   * Body: Block
 
-ForCondition :: (DeclarationStatement | Expression) SEMICOLON Expression (SEMICOLON (Expression | AssignmentExpression))?
+ForCondition :: (DeclarationStatement | Expression) SEMICOLON Expression (SEMICOLON (Expression | AssignmentStatement))?
   * Init: DeclarationStatement?
   * Condition: Expression
-  * Update: (Expression | AssignmentExpression)
+  * Update: (Expression | AssignmentStatement)
 
 RangeCondition :: IDENT COMMA IDENT IN Expression
   * Index: string

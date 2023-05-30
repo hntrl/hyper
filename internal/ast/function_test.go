@@ -363,6 +363,83 @@ func TestDeclarationStatement(t *testing.T) {
 	}
 }
 
+// AssignmentStatement
+// CAN CREATE STANDARD ASSIGNMENT
+func TestAssignmentStatement(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: `abc = 1`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseAssignmentStatement(p)
+		},
+		expects: &AssignmentStatement{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Name: Selector{
+				pos:     tokens.Position{Line: 1, Column: 1},
+				Members: []string{"abc"},
+			},
+			Operator: tokens.ASSIGN,
+			Init: Expression{
+				pos: tokens.Position{Line: 1, Column: 5},
+				Init: Literal{
+					pos:   tokens.Position{Line: 1, Column: 5},
+					Value: int64(1),
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN REJECT ASSIGNMENT WITH INVALID OPERATOR
+func TestAssignmentStatementInvalidOperator(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: `abc != 1`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseAssignmentStatement(p)
+		},
+		expects:      nil,
+		expectsError: ExpectedError(tokens.Position{Line: 1, Column: 5}, tokens.ILLEGAL, "!="),
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE INTEGER OP ASSIGNMENT
+func TestAssignmentStatementIntegerOp(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: `abc++`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseAssignmentStatement(p)
+		},
+		expects: &AssignmentStatement{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Name: Selector{
+				pos:     tokens.Position{Line: 1, Column: 1},
+				Members: []string{"abc"},
+			},
+			Operator: tokens.ADD,
+			Init: Expression{
+				pos: tokens.Position{Line: 1, Column: 6},
+				Init: Literal{
+					pos:   tokens.Position{Line: 1, Column: 6},
+					Value: int64(1),
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
 // IfStatement
 // CAN PARSE IF STATEMENTS
 func TestIfStatement(t *testing.T) {
@@ -727,7 +804,7 @@ func TestForStatementWithAggregateForCondition(t *testing.T) {
 						},
 					},
 				},
-				Update: AssignmentExpression{
+				Update: AssignmentStatement{
 					pos: tokens.Position{Line: 1, Column: 28},
 					Name: Selector{
 						pos:     tokens.Position{Line: 1, Column: 28},

@@ -8,8 +8,8 @@ import (
 )
 
 // FieldStatement
-// CAN PARSE FIELD STATEMENT WITH ASSIGNMENT STATEMENT
-func TestFieldStatementWithAssignmentStatement(t *testing.T) {
+// CAN PARSE FIELD STATEMENT WITH FIELD ASSIGNMENT EXPRESSION
+func TestFieldStatementWithFieldAssignmentExpression(t *testing.T) {
 	err := evaluateTest(TestFixture{
 		lit: "a = b",
 		parseFn: func(p *parser.Parser) (Node, error) {
@@ -17,7 +17,7 @@ func TestFieldStatementWithAssignmentStatement(t *testing.T) {
 		},
 		expects: &FieldStatement{
 			pos: tokens.Position{Line: 1, Column: 1},
-			Init: AssignmentStatement{
+			Init: FieldAssignmentExpression{
 				pos:  tokens.Position{Line: 1, Column: 5},
 				Name: "a",
 				Init: Expression{
@@ -42,8 +42,8 @@ func TestFieldStatementWithAssignmentStatement(t *testing.T) {
 	}
 }
 
-// CAN PARSE FIELD STATEMENT WITH ENUM STATEMENT
-func TestFieldStatementWithEnumStatement(t *testing.T) {
+// CAN PARSE FIELD STATEMENT WITH ENUM EXPRESSION
+func TestFieldStatementWithEnumExpression(t *testing.T) {
 	err := evaluateTest(TestFixture{
 		lit: `foo "bar"`,
 		parseFn: func(p *parser.Parser) (Node, error) {
@@ -51,7 +51,7 @@ func TestFieldStatementWithEnumStatement(t *testing.T) {
 		},
 		expects: &FieldStatement{
 			pos: tokens.Position{Line: 1, Column: 1},
-			Init: EnumStatement{
+			Init: EnumExpression{
 				pos:  tokens.Position{Line: 1, Column: 5},
 				Name: "foo",
 				Init: "bar",
@@ -65,7 +65,7 @@ func TestFieldStatementWithEnumStatement(t *testing.T) {
 	}
 }
 
-// CAN PARSE FIELD STATEMENT WITH TYPE STATEMENT
+// CAN PARSE FIELD STATEMENT WITH FIELD EXPRESSION
 func TestFieldStatementWithTypeStatement(t *testing.T) {
 	err := evaluateTest(TestFixture{
 		lit: `foo Bar`,
@@ -74,7 +74,7 @@ func TestFieldStatementWithTypeStatement(t *testing.T) {
 		},
 		expects: &FieldStatement{
 			pos: tokens.Position{Line: 1, Column: 1},
-			Init: TypeStatement{
+			Init: FieldExpression{
 				pos:  tokens.Position{Line: 1, Column: 5},
 				Name: "foo",
 				Init: TypeExpression{
@@ -106,7 +106,7 @@ func TestFieldStatementWithComment(t *testing.T) {
 		},
 		expects: &FieldStatement{
 			pos: tokens.Position{Line: 1, Column: 1},
-			Init: EnumStatement{
+			Init: EnumExpression{
 				pos:  tokens.Position{Line: 1, Column: 12},
 				Name: "bar",
 				Init: "baz",

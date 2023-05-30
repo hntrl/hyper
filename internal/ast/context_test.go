@@ -195,7 +195,7 @@ func TestContextObjectWithAllStatements(t *testing.T) {
 			Fields: []FieldStatement{
 				{
 					pos: tokens.Position{Line: 1, Column: 10},
-					Init: AssignmentStatement{
+					Init: FieldAssignmentExpression{
 						pos:  tokens.Position{Line: 1, Column: 10},
 						Name: "one",
 						Init: Expression{
@@ -209,7 +209,7 @@ func TestContextObjectWithAllStatements(t *testing.T) {
 				},
 				{
 					pos: tokens.Position{Line: 1, Column: 20},
-					Init: EnumStatement{
+					Init: EnumExpression{
 						pos:  tokens.Position{Line: 1, Column: 20},
 						Name: "two",
 						Init: "def",
@@ -217,7 +217,7 @@ func TestContextObjectWithAllStatements(t *testing.T) {
 				},
 				{
 					pos: tokens.Position{Line: 1, Column: 27},
-					Init: TypeStatement{
+					Init: FieldExpression{
 						pos:  tokens.Position{Line: 1, Column: 27},
 						Name: "three",
 						Init: TypeExpression{
