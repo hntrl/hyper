@@ -600,18 +600,18 @@ func ParseDeclarationStatement(p *parser.Parser) (*DeclarationStatement, error) 
 	return &stmt, nil
 }
 
-// AssignmentStatement :: Selector token(IsAssignmentOperator) Expression
+// AssignmentStatement :: AssignmentTargetExpression token(IsAssignmentOperator) Expression
 //
-//	| Selector (INC | DEC)
+//	| AssignmentTargetExpression (INC | DEC)
 type AssignmentStatement struct {
 	pos      tokens.Position
-	Name     Selector
+	Target   AssignmentTargetExpression
 	Operator tokens.Token
 	Init     Expression
 }
 
 func (a AssignmentStatement) Validate() error {
-	if err := a.Name.Validate(); err != nil {
+	if err := a.Target.Validate(); err != nil {
 		return err
 	}
 	if !a.Operator.IsAssignmentOperator() {
@@ -628,11 +628,11 @@ func (a AssignmentStatement) Pos() tokens.Position {
 }
 
 func ParseAssignmentStatement(p *parser.Parser) (*AssignmentStatement, error) {
-	name, err := ParseSelector(p)
+	target, err := ParseAssignmentTargetExpression(p)
 	if err != nil {
 		return nil, err
 	}
-	assign := AssignmentStatement{pos: name.pos, Name: *name}
+	assign := AssignmentStatement{pos: target.pos, Target: *target}
 
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok == tokens.INC || tok == tokens.DEC {
@@ -653,6 +653,98 @@ func ParseAssignmentStatement(p *parser.Parser) (*AssignmentStatement, error) {
 		return nil, ExpectedError(pos, tokens.ILLEGAL, lit)
 	}
 	return &assign, nil
+}
+
+// AssignmentTargetExpression :: IDENT AssignmentTargetExpressionMember*
+type AssignmentTargetExpression struct {
+	pos     tokens.Position
+	Members []AssignmentTargetExpressionMember
+}
+
+func (v AssignmentTargetExpression) Validate() error {
+	for _, m := range v.Members {
+		if err := m.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (v AssignmentTargetExpression) Pos() tokens.Position {
+	return v.pos
+}
+
+func ParseAssignmentTargetExpression(p *parser.Parser) (*AssignmentTargetExpression, error) {
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	ve := AssignmentTargetExpression{pos: pos, Members: []AssignmentTargetExpressionMember{}}
+
+	if tok != tokens.IDENT {
+		return nil, ExpectedError(pos, tokens.IDENT, lit)
+	}
+	ve.Members = append(ve.Members, AssignmentTargetExpressionMember{Init: lit})
+
+	for {
+		_, tok, _ := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		p.Unscan()
+		if tok != tokens.PERIOD && tok != tokens.LSQUARE && tok != tokens.LPAREN {
+			break
+		}
+		member, err := ParseAssignmentTargetExpressionMember(p)
+		if err != nil {
+			return nil, err
+		}
+		ve.Members = append(ve.Members, *member)
+	}
+	return &ve, nil
+}
+
+// AssignmentTargetExpressionMember :: PERIOD IDENT
+//
+//	| IndexExpression
+type AssignmentTargetExpressionMember struct {
+	pos  tokens.Position
+	Init interface{} `types:"string,IndexExpression"`
+}
+
+func (v AssignmentTargetExpressionMember) Validate() error {
+	if _, ok := v.Init.(string); ok {
+		// do nothing
+	} else if index, ok := v.Init.(IndexExpression); ok {
+		if err := index.Validate(); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("parsing: %T not allowed in AssignmentTargetExpression", v.Init)
+	}
+	return nil
+}
+
+func (v AssignmentTargetExpressionMember) Pos() tokens.Position {
+	return v.pos
+}
+
+func ParseAssignmentTargetExpressionMember(p *parser.Parser) (*AssignmentTargetExpressionMember, error) {
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	member := AssignmentTargetExpressionMember{pos: pos}
+
+	switch tok {
+	case tokens.PERIOD:
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		if tok != tokens.IDENT {
+			return nil, ExpectedError(pos, tokens.IDENT, lit)
+		}
+		member.Init = lit
+	case tokens.LSQUARE:
+		p.Unscan()
+		index, err := ParseIndexExpression(p)
+		if err != nil {
+			return nil, err
+		}
+		member.Init = *index
+	default:
+		return nil, ExpectedError(pos, tokens.PERIOD, lit)
+	}
+	return &member, nil
 }
 
 // IfStatement :: IF LPAREN Expression RPAREN InlineBlock (ELSE IfStatement)? (ELSE Block)?

@@ -194,11 +194,18 @@ DeclarationStatement :: IDENT DEFINE Expression
   * Name: string
   * Init: Expression
 
-AssignmentStatement :: Selector token(IsAssignmentOperator) Expression
-                    | Selector (INC | DEC)
-  * Name: Selector
+AssignmentStatement :: AssignmentTargetExpression token(IsAssignmentOperator) Expression
+                    | AssignmentTargetExpression (INC | DEC)
+  * Target: AssignmentTargetExpression
   * Operator: token(IsAssignmentOperator) | (INC | DEC)
   * Init: Expression
+
+AssignmentTargetExpression :: IDENT AssignmentTargetExpressionMember*
+  * Members: []AssignmentTargetExpressionMember
+
+AssignmentTargetExpressionMember :: PERIOD IDENT
+                                  | IndexExpression
+  * Init: (string | IndexExpression)
 
 IfStatement :: IF LPAREN Expression RPAREN InlineBlock (ELSE IfStatement)? (ELSE Block)?
   * Condition: Expression

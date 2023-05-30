@@ -373,9 +373,11 @@ func TestAssignmentStatement(t *testing.T) {
 		},
 		expects: &AssignmentStatement{
 			pos: tokens.Position{Line: 1, Column: 1},
-			Name: Selector{
-				pos:     tokens.Position{Line: 1, Column: 1},
-				Members: []string{"abc"},
+			Target: AssignmentTargetExpression{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Members: []AssignmentTargetExpressionMember{
+					{Init: "abc"},
+				},
 			},
 			Operator: tokens.ASSIGN,
 			Init: Expression{
@@ -419,9 +421,9 @@ func TestAssignmentStatementIntegerOp(t *testing.T) {
 		},
 		expects: &AssignmentStatement{
 			pos: tokens.Position{Line: 1, Column: 1},
-			Name: Selector{
+			Target: AssignmentTargetExpression{
 				pos:     tokens.Position{Line: 1, Column: 1},
-				Members: []string{"abc"},
+				Members: []AssignmentTargetExpressionMember{{Init: "abc"}},
 			},
 			Operator: tokens.ADD,
 			Init: Expression{
@@ -429,6 +431,94 @@ func TestAssignmentStatementIntegerOp(t *testing.T) {
 				Init: Literal{
 					pos:   tokens.Position{Line: 1, Column: 6},
 					Value: int64(1),
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// AssignmentTargetExpression
+// CAN PARSE ASSIGNMENT TARGET EXPRESSION
+func TestAssignmentTargetExpression(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "abc[1].val[3:int('abc')]",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseExpression(p)
+		},
+		expects: &Expression{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Init: AssignmentTargetExpression{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Members: []AssignmentTargetExpressionMember{
+					{
+						pos:  tokens.Position{Line: 1, Column: 1},
+						Init: "abc",
+					},
+					{
+						pos: tokens.Position{Line: 1, Column: 4},
+						Init: IndexExpression{
+							pos: tokens.Position{Line: 1, Column: 4},
+							Left: &Expression{
+								pos: tokens.Position{Line: 1, Column: 5},
+								Init: Literal{
+									pos:   tokens.Position{Line: 1, Column: 5},
+									Value: int64(1),
+								},
+							},
+							IsRange: false,
+							Right:   nil,
+						},
+					},
+					{
+						pos:  tokens.Position{Line: 1, Column: 7},
+						Init: "val",
+					},
+					{
+						pos: tokens.Position{Line: 1, Column: 13},
+						Init: IndexExpression{
+							pos: tokens.Position{Line: 1, Column: 13},
+							Left: &Expression{
+								pos: tokens.Position{Line: 1, Column: 14},
+								Init: Literal{
+									pos:   tokens.Position{Line: 1, Column: 14},
+									Value: int64(3),
+								},
+							},
+							IsRange: true,
+							Right: &Expression{
+								pos: tokens.Position{Line: 1, Column: 19},
+								Init: AssignmentTargetExpression{
+									pos: tokens.Position{Line: 1, Column: 19},
+									Members: []AssignmentTargetExpressionMember{
+										{
+											pos:  tokens.Position{Line: 1, Column: 19},
+											Init: "int",
+										},
+										{
+											pos: tokens.Position{Line: 1, Column: 22},
+											Init: CallExpression{
+												pos: tokens.Position{Line: 1, Column: 22},
+												Arguments: []Expression{
+													{
+														pos: tokens.Position{Line: 1, Column: 23},
+														Init: Literal{
+															pos:   tokens.Position{Line: 1, Column: 23},
+															Value: "abc",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -806,9 +896,11 @@ func TestForStatementWithAggregateForCondition(t *testing.T) {
 				},
 				Update: AssignmentStatement{
 					pos: tokens.Position{Line: 1, Column: 28},
-					Name: Selector{
-						pos:     tokens.Position{Line: 1, Column: 28},
-						Members: []string{"idx"},
+					Target: AssignmentTargetExpression{
+						pos: tokens.Position{Line: 1, Column: 28},
+						Members: []AssignmentTargetExpressionMember{
+							{Init: "idx"},
+						},
 					},
 					Operator: tokens.ADD,
 					Init: Expression{
