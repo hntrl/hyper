@@ -18,7 +18,7 @@ Additional context requirements are delimited by [*subject* (annotation needed)]
 
 Incompleteness in material are described by --a brief statement of work needed--
 
-- --Write section on why the lazy dog didn't appreciate the fox jumping over him--
+- --Write section on why the dog didn't appreciate the fox jumping over him--
 
 ## License
 
