@@ -1,23 +1,20 @@
 ## 1. Hyper Language Data Types & Values
 
-A _language type_ represents the behavior a _language value_ should inherit. A _language value_ represents an independent value that is meant to be accessed in scope and is characterized by a _language type_.
+A _language type_ represents the behavior a _scope value_ should inherit. A _scope value_ represents an independent value that is meant to be accessed in scope and is characterized by a _language type_.
 
 ### 1.1 Language Types
 
 #### 1.1.1 `Object` Type
 
-An Object is a collection of immutable and unsorted properties. Each property is either a data property, or an accessor property.
-
-- A _data property_ associates a key value to a _language value_.
-- An _accessor property_ associates a key value with a accessor function. The _accessor function_ is used to retrieve a _language value_ that is associated with a property.
+An Object represents an ambiguous object that contains immutable and unsorted properties. Each object has an internal get method that takes in a key value and returns the scope value that is associated with that property.
 
 #### 1.1.2 `ValueObject` Type
 
 A ValueObject represents a stateful, serializable value that is described by a _Class_.
 
-#### 1.1.3 `Function` Type
+#### 1.1.3 `Callable` Type
 
-A Function represents an executable routine that accepts an argument list (a list of value objects) and returns either a [normal completion (annotation needed)] with a value object or a [throw completion (annotation needed)].
+A Callable represents an executable routine that accepts an argument list (a list of value objects) and returns either a [normal completion (annotation needed)] with a value object or a [throw completion (annotation needed)].
 
 #### 1.1.4 `Class` Type
 
@@ -111,10 +108,14 @@ Prototype methods do not exist as accessible properties on the class itself, onl
 
 #### 1.3.1 `NilableObject`
 
-#### 1.3.2 `Iterable`
+#### 1.3.2 `Array`
 
-#### 1.3.3 `Function`
+#### 1.3.3 `Map`
 
-##### 1.3.3.1 Additional scope
+#### 1.3.4 `Error`
 
-##### 1.3.3.2 `guard` Directive -->
+#### 1.3.5 `Function`
+
+##### 1.3.5.1 Additional scope
+
+##### 1.3.5.2 `guard` Directive -->
