@@ -231,3 +231,22 @@ func (t Token) IsComparableOperator() bool {
 func (t Token) IsAssignmentOperator() bool {
 	return assign_beg < t && t < assign_end
 }
+
+func GetEffectOperator(token Token) Token {
+	var effectOperator Token
+	switch token {
+	case ADD_ASSIGN, INC:
+		effectOperator = ADD
+	case SUB_ASSIGN, DEC:
+		effectOperator = SUB
+	case MUL_ASSIGN:
+		effectOperator = MUL
+	case PWR_ASSIGN:
+		effectOperator = PWR
+	case QUO_ASSIGN:
+		effectOperator = QUO
+	case REM_ASSIGN:
+		effectOperator = REM
+	}
+	return effectOperator
+}
