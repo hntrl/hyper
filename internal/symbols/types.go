@@ -1,399 +1,480 @@
 package symbols
 
 import (
-	"fmt"
-
 	"github.com/hntrl/hyper/internal/tokens"
+	"github.com/mitchellh/hashstructure"
 )
 
-type AnyClass struct{}
+// TODO: make this interface constrinaed to one of `Object` `ValueObject` or `Class`
+type ScopeValue interface{}
 
-func (ac AnyClass) ClassName() string {
-	return "any"
+// @ 1.1.1 `Object` Type
+
+type Object interface {
+	Get(string) (ScopeValue, error)
 }
-func (ac AnyClass) Constructors() ConstructorMap {
-	return NewConstructorMap()
+
+// @ 1.1.2 `ValueObject` Type
+
+type ValueObject interface {
+	// The serialized version of the value object
+	Value() interface{}
+	// The class assumed by the value object
+	Class() Class
 }
-func (ac AnyClass) Get(key string) (Object, error) {
+
+// @ 1.1.3 `Callable` Type
+
+type Callable interface {
+	Arguments() []Class
+	Returns() Class
+	Call(...ValueObject) (ValueObject, error)
+}
+
+func ConstructCallableArguments(callable Callable, args []ValueObject) ([]ValueObject, error) {
+	callableArgs := callable.Arguments()
+	constructedArgs := make([]ValueObject, len(callableArgs))
+	if len(args) != len(callableArgs) {
+		return nil, MismatchedArgumentLengthError(len(callableArgs), len(args))
+	}
+	for idx, arg := range args {
+		argClass := callableArgs[idx]
+		argValue, err := Construct(argClass, arg)
+		if err != nil {
+			return nil, err
+		}
+		constructedArgs[idx] = argValue
+	}
+	return constructedArgs, nil
+}
+func ValidateCallableArguments(callable Callable, args []Class) error {
+	callableArgs := callable.Arguments()
+	if len(args) != len(callableArgs) {
+		return MismatchedArgumentLengthError(len(callableArgs), len(args))
+	}
+	for idx, arg := range args {
+		argClass := callableArgs[idx]
+		err := ShouldConstruct(argClass, arg)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// @ 1.1.4 `Class` Type
+
+type ClassHash uint64
+
+type Class interface {
+	Name() string
+	Descriptors() *ClassDescriptors
+}
+
+type ClassDescriptors struct {
+	Constructors ClassConstructorSet
+	Operators    ClassOperatorSet
+	Comparators  ClassComparatorSet
+	Properties   ClassPropertyMap
+	Enumerable   *ClassEnumerationRules
+	Prototype    ClassPrototypeMap
+}
+
+func classHash(class Class) ClassHash {
+	hash, err := hashstructure.Hash(class, nil)
+	if err != nil {
+		panic(err)
+	}
+	return ClassHash(hash)
+}
+
+func classEquals(a, b Class) bool {
+	return classHash(a) == classHash(b)
+}
+
+type ClassMethod struct {
+	Class         Class
+	ArgumentTypes []Class
+	ReturnType    Class
+	handler       classMethodFn
+}
+
+type ClassMethodOptions struct {
+	Class     Class
+	Arguments []Class
+	Returns   Class
+	Handler   interface{}
+}
+
+func NewClassMethod(opts ClassMethodOptions) *ClassMethod {
+	fn, err := makeClassMethodFn(opts.Class, opts.Arguments, opts.Handler)
+	if err != nil {
+		panic(err)
+	}
+	return &ClassMethod{
+		Class:         opts.Class,
+		ArgumentTypes: opts.Arguments,
+		ReturnType:    opts.Returns,
+		handler:       fn,
+	}
+}
+
+type classMethodFn func(...ValueObject) (ValueObject, error)
+
+func makeClassMethodFn(class Class, args []Class, callback interface{}) (classMethodFn, error) {
 	return nil, nil
 }
 
-// MapObject represents a set of propertties without any strict bindings to
-// a type
-type MapObject struct {
-	Properties map[string]Class       `hash:"ignore"`
-	Data       map[string]ValueObject `hash:"ignore"`
-}
+// @ 1.1.4.1 `Constructors` Class Descriptor
 
-func NewMapObject() *MapObject {
-	return &MapObject{
-		Properties: make(map[string]Class),
-		Data:       make(map[string]ValueObject),
-	}
-}
+type ClassConstructorSet []*ClassConstructor
 
-func (obj MapObject) ClassName() string {
-	return "MapObject"
-}
-func (obj MapObject) Fields() map[string]Class {
-	return obj.Properties
-}
-func (obj MapObject) Constructors() ConstructorMap {
-	return NewConstructorMap()
-}
-
-func (obj MapObject) Class() Class {
-	return obj
-}
-func (obj MapObject) Value() interface{} {
-	out := make(map[string]interface{})
-	for key, obj := range obj.Data {
-		out[key] = obj.Value()
-	}
-	return out
-}
-func (obj *MapObject) Set(key string, new ValueObject) error {
-	if class, ok := obj.Properties[key]; ok {
-		if !ClassEquals(class, new.Class()) {
-			return fmt.Errorf("cannot assign %s to %s", new.Class().ClassName(), class.ClassName())
+func (set ClassConstructorSet) Get(forClass Class) *ClassConstructor {
+	hash := classHash(forClass)
+	for _, constructor := range set {
+		if constructor.forClass == hash {
+			return constructor
 		}
 	}
-	obj.Data[key] = new
 	return nil
 }
-func (obj MapObject) Get(key string) (Object, error) {
-	return obj.Data[key], nil
+
+type ClassConstructor struct {
+	forClass ClassHash
+	handler  classConstructorFn
 }
 
-// Type represents a structured list of fields that are strongly controlled
-type Type struct {
-	Name       string
-	Private    bool
-	Comment    string
-	Properties map[string]Class
+func Constructor(forClass Class, callback interface{}) *ClassConstructor {
+	fn, err := makeClassConstructorFn(forClass, callback)
+	if err != nil {
+		panic(err)
+	}
+	return &ClassConstructor{
+		forClass: classHash(forClass),
+		handler:  fn,
+	}
 }
 
-func (t Type) ClassName() string {
-	return t.Name
-}
-func (t Type) Fields() map[string]Class {
-	return t.Properties
-}
-func (t Type) Constructors() ConstructorMap {
-	csMap := NewConstructorMap()
-	csMap.AddGenericConstructor(t, func(data map[string]ValueObject) (ValueObject, error) {
-		obj := TypeObject{t, data}
-		for key, class := range t.Properties {
-			if nilableProp, ok := class.(*NilableObject); ok {
-				nilable := *nilableProp
-				if nilableObject, ok := data[key].(*NilableObject); ok {
-					nilable.Object = nilableObject.Object
-				} else {
-					nilable.Object = data[key]
-				}
-				obj.Data[key] = &nilable
-			}
-		}
-		return &obj, nil
-	})
-	return csMap
-}
-func (t Type) Get(key string) (Object, error) {
+type classConstructorFn func(ValueObject) (ValueObject, error)
+
+func makeClassConstructorFn(forClass Class, callback interface{}) (classConstructorFn, error) {
+	// TODO: the `return` type for the classConstructorFn isn't evaluated since it would create recursion since that context won't be available when creating class constructors
+	// TODO: implement this
 	return nil, nil
 }
 
-func (t Type) Export() (Object, error) {
-	return t, nil
-}
-
-// TypeObject represents an instance of a Type
-type TypeObject struct {
-	ParentType Type
-	Data       map[string]ValueObject
-}
-
-func (to TypeObject) Class() Class {
-	return to.ParentType
-}
-func (to TypeObject) Value() interface{} {
-	out := make(map[string]interface{})
-	for key, obj := range to.Data {
-		out[key] = obj.Value()
+// Returns no error if a class can be constructed into another class.
+func ShouldConstruct(target, value Class) error {
+	if classEquals(target, value) {
+		return nil
 	}
-	return out
-}
-func (to *TypeObject) Set(key string, obj ValueObject) error {
-	to.Data[key] = obj
-	return nil
-}
-func (to TypeObject) Get(key string) (Object, error) {
-	return to.Data[key], nil
-}
-
-type Iterable struct {
-	ParentType Class
-	Items      []ValueObject `hash:"ignore"`
-}
-
-func NewIterable(class Class, len int) Iterable {
-	return Iterable{
-		ParentType: class,
-		Items:      make([]ValueObject, len),
-	}
-}
-
-func (it Iterable) ClassName() string {
-	return fmt.Sprintf("[]%s", it.ParentType.ClassName())
-}
-func (it Iterable) Constructors() ConstructorMap {
-	csMap := NewConstructorMap()
-	csMap.AddConstructor(it, func(obj ValueObject) (ValueObject, error) {
-		iter := obj.(Iterable)
-		newIter := NewIterable(it.ParentType, len(iter.Items))
-		copy(newIter.Items, iter.Items)
-		return obj, nil
-	})
-	return csMap
-}
-
-func (it Iterable) Class() Class {
-	return it
-}
-func (it Iterable) Value() interface{} {
-	out := make([]interface{}, len(it.Items))
-	for i, obj := range it.Items {
-		out[i] = obj.Value()
-	}
-	return out
-}
-func (it Iterable) Set(key string, obj ValueObject) error {
-	return CannotSetPropertyError(key, it)
-}
-func (it Iterable) Get(key string) (Object, error) {
-	methods := map[string]Object{
-		"append": NewFunction(FunctionOptions{
-			Arguments: []Class{
-				it.ParentType,
-			},
-			Returns: it,
-			Handler: func(args []ValueObject, proto ValueObject) (ValueObject, error) {
-				return Iterable{
-					ParentType: it.ParentType,
-					Items:      append(it.Items, args[0]),
-				}, nil
-			},
-		}),
-	}
-	return methods[key], nil
-}
-
-func (it Iterable) GetIndex(index int) (ValueObject, error) {
-	if index > it.Len() || index < 0 {
-		return nil, fmt.Errorf("index out of range")
-	}
-	return it.Items[index], nil
-}
-func (it Iterable) SetIndex(index int, obj ValueObject) error {
-	it.Items[index] = obj
-	return nil
-}
-func (it Iterable) Range(a, b int) (Indexable, error) {
-	if a > it.Len() || b > it.Len() || a < 0 || b < 0 {
-		return nil, fmt.Errorf("index out of range")
-	}
-	return Iterable{
-		ParentType: it.ParentType,
-		Items:      it.Items[a:b],
-	}, nil
-}
-func (it Iterable) Len() int {
-	return len(it.Items)
-}
-
-type PartialObject struct {
-	ClassObject ObjectClass
-	Object      ValueObject `hash:"ignore"`
-}
-
-func NewPartialObject(c ObjectClass) *PartialObject {
-	return &PartialObject{ClassObject: c}
-}
-
-func (po PartialObject) ClassName() string {
-	return fmt.Sprintf("Partial<%s>", po.ClassObject.ClassName())
-}
-func (po PartialObject) Fields() map[string]Class {
-	out := make(map[string]Class)
-	for k, v := range po.ClassObject.Fields() {
-		if val, ok := v.(*NilableObject); ok {
-			nilable := *val
-			out[k] = &nilable
-		} else {
-			out[k] = &NilableObject{ClassObject: v}
+	if targetArrayClass, ok := target.(ArrayClass); ok {
+		// If both the target class and the value's class are iterable, redo ShouldConstruct with their parent types
+		if valueArrayClass, ok := value.(ArrayClass); ok {
+			return ShouldConstruct(targetArrayClass.ItemClass, valueArrayClass.ItemClass)
 		}
 	}
-	return out
-}
-func (po PartialObject) Constructors() ConstructorMap {
-	return po.ClassObject.Constructors()
-}
-
-func (po PartialObject) Class() Class {
-	return po
-}
-func (po PartialObject) Value() interface{} {
-	return po.Object.Value()
-}
-func (po *PartialObject) Set(key string, obj ValueObject) error {
-	return po.Object.Set(key, obj)
-}
-func (po PartialObject) Get(key string) (Object, error) {
-	return po.Object.Get(key)
-}
-
-// TODO: Nilable types should not satisfy it's not nilable type. (i.e. String? should not satisfy String)
-
-type NilableObject struct {
-	ClassObject Class
-	Object      ValueObject `hash:"ignore"`
-}
-
-func NewOptionalClass(c Class) *NilableObject {
-	return &NilableObject{ClassObject: c}
-}
-
-func (no NilableObject) ClassName() string {
-	return fmt.Sprintf("%s?", no.ClassObject.ClassName())
-}
-func (no NilableObject) Fields() map[string]Class {
-	if objectClass, ok := no.ClassObject.(ObjectClass); ok {
-		return objectClass.Fields()
+	if valueMapClass, ok := value.(MapClass); ok {
+		// If the value class is a Map, it should construct IF:
+		//	1. The map has a `Properties` descriptor
+		//  2. The map doesn't have any properties that dont exist on the target class
+		//  3. The map isn't missing any properties that are defined on the target class
+		//  4. The map's properties are constructable to the target class's fields
 	}
-	return nil
+	if constructor := target.Descriptors().Constructors.Get(value); constructor != nil {
+		// If the target class has a constructor defined for the value's class, it should construct
+		return nil
+	}
+	if properties := value.Descriptors().Properties; properties != nil {
+		// If the and value class has properties, redo ShouldConstruct as if the value was a map
+		propertyClassMap := map[string]Class{}
+		for key, attributes := range properties {
+			propertyClassMap[key] = attributes.PropertyClass
+		}
+		return ShouldConstruct(target, MapClass{Properties: propertyClassMap})
+	}
+	return CannotConstructError(target, value)
 }
-func (no NilableObject) Constructors() ConstructorMap {
-	csMap := NewConstructorMap()
-	csMap.AddConstructor(NilLiteral{}, func(ValueObject) (ValueObject, error) {
-		return &NilableObject{no.ClassObject, nil}, nil
-	})
-	innerConstructors := no.ClassObject.Constructors()
-	for classHash, constructor := range innerConstructors.values {
-		if constructorFn, ok := constructor.(ConstructorFn); ok {
-			// FIXME: needs a better way then assigning directly to the hashmap
-			csMap.values[classHash] = ConstructorFn(func(obj ValueObject) (ValueObject, error) {
-				if obj == nil {
-					return nil, fmt.Errorf("cannot construct %s from nil", no.ClassName())
-				}
-				csObj, err := constructorFn(obj)
+func Construct(target Class, value ValueObject) (ValueObject, error) {
+	if classEquals(target, value.Class()) {
+		return value, nil
+	}
+	if targetArrayClass, ok := target.(ArrayClass); ok {
+		if valueArray, ok := value.(*ArrayValue); ok {
+			itemClass := targetArrayClass.ItemClass
+			newValueArray := NewArray(itemClass, len(valueArray.Items))
+			for idx, val := range valueArray.Items {
+				constructedVal, err := Construct(itemClass, val)
 				if err != nil {
 					return nil, err
 				}
-				return &NilableObject{no.ClassObject, csObj}, nil
-			})
+				newValueArray.Items[idx] = constructedVal
+			}
+			return newValueArray, nil
 		}
 	}
-	if genericFn := innerConstructors.generic; genericFn != nil {
-		fn := *genericFn
-		newFn := GenericConstructor(func(data map[string]ValueObject) (ValueObject, error) {
-			csObj, err := fn(data)
-			if err != nil {
-				return nil, err
-			}
-			return &NilableObject{no.ClassObject, csObj}, nil
-		})
-		csMap.generic = &newFn
+	if constructor := target.Descriptors().Constructors.Get(value.Class()); constructor != nil {
+		return constructor.handler(value)
 	}
-	return csMap
+	if properties := value.Class().Descriptors().Properties; properties != nil {
+		return Construct(target, &MapValue{})
+	}
+	return nil, CannotConstructError(target, value.Class())
 }
 
-func (no NilableObject) Class() Class {
-	return no
-}
-func (no NilableObject) Value() interface{} {
-	if no.Object == nil {
-		return nil
+// @ 1.1.4.2 `Operators` Class Descriptor
+
+type ClassOperatorSet []*ClassOperator
+
+func (set ClassOperatorSet) Get(operandClass Class, token tokens.Token) *ClassOperator {
+	hash := classHash(operandClass)
+	for _, operator := range set {
+		if operator.operandClass == hash && operator.token == token {
+			return operator
+		}
 	}
-	return no.Object.Value()
-}
-func (no *NilableObject) Set(key string, obj ValueObject) error {
-	if no.Object == nil {
-		return fmt.Errorf("cannot set value on nil")
-	}
-	return no.Object.Set(key, obj)
-}
-func (no NilableObject) Get(key string) (Object, error) {
-	if no.Object == nil {
-		return nil, nil
-	}
-	return no.Object.Get(key)
+	return nil
 }
 
-func (no NilableObject) ComparableRules() ComparatorRules {
-	rules := NewComparatorRules()
-	if comparable, ok := no.ClassObject.(ComparableClass); ok {
-		rules = comparable.ComparableRules()
-	}
-	rules.AddComparator(NilLiteral{}, tokens.EQUALS, func(a, b ValueObject) (ValueObject, error) {
-		object := a.(*NilableObject)
-		return BooleanLiteral(object.Object == nil), nil
-	})
-	rules.AddComparator(NilLiteral{}, tokens.NOT_EQUALS, func(a, b ValueObject) (ValueObject, error) {
-		object := a.(*NilableObject)
-		return BooleanLiteral(object.Object != nil), nil
-	})
-	return rules
-}
-func (no NilableObject) OperatorRules() OperatorRules {
-	if operable, ok := no.ClassObject.(OperableClass); ok {
-		return operable.OperatorRules()
-	}
-	return NewOperatorRules()
+type ClassOperator struct {
+	operandClass ClassHash
+	token        tokens.Token
+	handler      classOperatorFn
 }
 
-type Error struct {
-	Name    string      `json:"name"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
+func Operator(operandClass Class, token tokens.Token, callback interface{}) *ClassOperator {
+	fn, err := makeClassOperatorFn(operandClass, callback)
+	if err != nil {
+		panic(err)
+	}
+	return &ClassOperator{
+		operandClass: classHash(operandClass),
+		token:        token,
+		handler:      fn,
+	}
 }
 
-func ErrorFromMapObject(obj *MapObject) Error {
-	err := Error{}
-	if name, ok := obj.Data["name"]; ok {
-		err.Name = fmt.Sprintf("%s", name.Value())
-	}
-	if message, ok := obj.Data["message"]; ok {
-		err.Message = fmt.Sprintf("%s", message.Value())
-	}
-	if data, ok := obj.Data["data"]; ok {
-		err.Data = data
-	}
-	return err
-}
+type classOperatorFn func(ValueObject, ValueObject) (ValueObject, error)
 
-func (err Error) ClassName() string {
-	return err.Name
-}
-func (err Error) Constructors() ConstructorMap {
-	return NewConstructorMap()
-}
-
-func (err Error) Class() Class {
-	return err
-}
-func (err Error) Value() interface{} {
-	return err.Message
-}
-func (err Error) Set(key string, obj ValueObject) error {
-	return CannotSetPropertyError(key, err)
-}
-func (err Error) Get(key string) (Object, error) {
+func makeClassOperatorFn(operandClass Class, callback interface{}) (classOperatorFn, error) {
 	return nil, nil
 }
 
-func (err Error) Error() string {
-	if err.Data == nil {
-		return fmt.Sprintf("%s: %s", err.Name, err.Message)
-	} else {
-		return fmt.Sprintf("%s: %s %s", err.Name, err.Message, err.Data)
+func ShouldOperate(token tokens.Token, target, value Class) error {
+	targetDescriptors := target.Descriptors()
+	if !token.IsOperator() {
+		return InvalidOperatorError(token)
+	}
+	if targetDescriptors.Operators != nil {
+		if operator := targetDescriptors.Operators.Get(value, token); operator != nil {
+			return nil
+		}
+	}
+	return UndefinedOperatorError(token, target, value)
+}
+func Operate(token tokens.Token, target, value ValueObject) (ValueObject, error) {
+	targetDescriptors := target.Class().Descriptors()
+	if !token.IsOperator() {
+		return nil, InvalidOperatorError(token)
+	}
+	if targetDescriptors.Operators != nil {
+		if operator := targetDescriptors.Operators.Get(value.Class(), token); operator != nil {
+			return operator.handler(target, value)
+		}
+	}
+	return nil, UndefinedOperatorError(token, target.Class(), value.Class())
+}
+
+// @ 1.1.4.3 `Comparators` Class Descriptor
+
+type ClassComparatorSet []*ClassComparator
+
+func (set ClassComparatorSet) Get(operandClass Class, token tokens.Token) *ClassComparator {
+	hash := classHash(operandClass)
+	for _, comparator := range set {
+		if comparator.operandClass == hash && comparator.token == token {
+			return comparator
+		}
+	}
+	return nil
+}
+
+type ClassComparator struct {
+	operandClass ClassHash
+	token        tokens.Token
+	handler      classComparatorFn
+}
+
+func Comparator(operandClass Class, token tokens.Token, callback interface{}) *ClassComparator {
+	hash := classHash(operandClass)
+	fn, err := makeClassComparatorFn(operandClass, callback)
+	if err != nil {
+		panic(err)
+	}
+	return &ClassComparator{
+		operandClass: hash,
+		token:        token,
+		handler:      fn,
 	}
 }
+
+type classComparatorFn func(ValueObject, ValueObject) (bool, error)
+
+func makeClassComparatorFn(operandClass Class, callback interface{}) (classComparatorFn, error) {
+	// TOOD: write this
+	return nil, nil
+}
+
+func ShouldCompare(token tokens.Token, target, value Class) error {
+	targetDescriptors := target.Descriptors()
+	if !token.IsComparableOperator() {
+		return InvalidCompareOperatorError(token)
+	}
+	if targetDescriptors.Comparators != nil {
+		if comparator := targetDescriptors.Comparators.Get(value, token); comparator != nil {
+			return nil
+		}
+	}
+	return UndefinedOperatorError(token, target, value)
+}
+func Compare(token tokens.Token, target, value ValueObject) (bool, error) {
+	targetDescriptors := target.Class().Descriptors()
+	if !token.IsComparableOperator() {
+		return false, InvalidCompareOperatorError(token)
+	}
+	if targetDescriptors.Comparators != nil {
+		if comparator := targetDescriptors.Comparators.Get(value.Class(), token); comparator != nil {
+			return comparator.handler(target, value)
+		}
+	}
+	return false, UndefinedOperatorError(token, target.Class(), value.Class())
+}
+
+// @ 1.1.4.4 `Properties` Class Descriptor
+
+type ClassPropertyMap map[string]ClassPropertyAttributes
+
+type ClassPropertyAttributes struct {
+	PropertyClass Class
+	Getter        ClassGetterMethod
+	Setter        ClassSetterMethod
+}
+
+type PropertyAttributesOptions struct {
+	Class  Class
+	Getter interface{}
+	Setter interface{}
+}
+
+func PropertyAttributes(opts PropertyAttributesOptions) ClassPropertyAttributes {
+	attributes := ClassPropertyAttributes{PropertyClass: opts.Class}
+	if opts.Getter != nil {
+		getterMethod, err := makeClassGetterMethod(opts.Class, opts.Getter)
+		if err != nil {
+			panic(err)
+		}
+		attributes.Getter = getterMethod
+	}
+	if opts.Setter != nil {
+		setterMethod, err := makeClassSetterMethod(opts.Class, opts.Setter)
+		if err != nil {
+			panic(err)
+		}
+		attributes.Setter = setterMethod
+	}
+	return attributes
+}
+
+type ClassGetterMethod func(ValueObject) (ValueObject, error)
+type ClassSetterMethod func(ValueObject, ValueObject) error
+
+func makeClassGetterMethod(propertyClass Class, callback interface{}) (ClassGetterMethod, error) {
+	return nil, nil
+}
+func makeClassSetterMethod(propertyClass Class, callback interface{}) (ClassSetterMethod, error) {
+	return nil, nil
+}
+
+// @ 1.1.4.5 `Enumerable` Class Descriptor
+
+type ClassEnumerationRules struct {
+	GetLength EnumerableGetLengthMethod
+	GetIndex  EnumerableGetIndexMethod
+	SetIndex  EnumerableSetIndexMethod
+	GetRange  EnumerableGetRangeMethod
+	SetRange  EnumerableSetRangeMethod
+}
+
+type ClassEnumerationOptions struct {
+	GetLength interface{}
+	GetIndex  interface{}
+	SetIndex  interface{}
+	GetRange  interface{}
+	SetRange  interface{}
+}
+
+func NewClassEnumerationRules(opts ClassEnumerationOptions) *ClassEnumerationRules {
+	rules := &ClassEnumerationRules{}
+	if opts.GetLength != nil {
+		getLengthFn, err := makeEnumerableGetLengthMethod(opts.GetLength)
+		if err != nil {
+			panic(err)
+		}
+		rules.GetLength = getLengthFn
+	}
+	if opts.GetIndex != nil {
+		getIndexFn, err := makeEnumerableGetIndexMethod(opts.GetIndex)
+		if err != nil {
+			panic(err)
+		}
+		rules.GetIndex = getIndexFn
+	}
+	if opts.SetIndex != nil {
+		setIndexFn, err := makeEnumerableSetIndexMethod(opts.SetIndex)
+		if err != nil {
+			panic(err)
+		}
+		rules.SetIndex = setIndexFn
+	}
+	if opts.GetRange != nil {
+		getRangeFn, err := makeEnumerableGetRangeMethod(opts.GetRange)
+		if err != nil {
+			panic(err)
+		}
+		rules.GetRange = getRangeFn
+	}
+	if opts.SetRange != nil {
+		setRangeFn, err := makeEnumerableSetRangeMethod(opts.SetRange)
+		if err != nil {
+			panic(err)
+		}
+		rules.SetRange = setRangeFn
+	}
+	return rules
+}
+
+type EnumerableGetLengthMethod func(ValueObject) (int, error)
+type EnumerableGetIndexMethod func(ValueObject, int) (ValueObject, error)
+type EnumerableSetIndexMethod func(ValueObject, int, ValueObject) error
+type EnumerableGetRangeMethod func(ValueObject, int, int) (ValueObject, error)
+type EnumerableSetRangeMethod func(ValueObject, int, int, ValueObject) error
+
+func makeEnumerableGetLengthMethod(callback interface{}) (EnumerableGetLengthMethod, error) {
+	return nil, nil
+}
+func makeEnumerableGetIndexMethod(callback interface{}) (EnumerableGetIndexMethod, error) {
+	return nil, nil
+}
+func makeEnumerableSetIndexMethod(callback interface{}) (EnumerableSetIndexMethod, error) {
+	return nil, nil
+}
+func makeEnumerableGetRangeMethod(callback interface{}) (EnumerableGetRangeMethod, error) {
+	return nil, nil
+}
+func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMethod, error) {
+	return nil, nil
+}
+
+// @ 1.1.4.6 `Prototype` Class Descriptor
+
+type ClassPrototypeMap map[string]*ClassMethod
