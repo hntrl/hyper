@@ -160,7 +160,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 					}
 					err = resolveAssignmentStatementForMembers(st, members[1:], indexedValue, operandPredicate)
 					if err != nil {
-						return NodeError(memberNode, "problem when evaluting assignment at index %s: %s", i, err.Error())
+						return NodeError(memberNode, "problem when evaluting assignment at index %d: %s", i, err.Error())
 					}
 				}
 				return nil
@@ -657,6 +657,9 @@ func (st *SymbolTable) ResolveBlockStatement(node ast.BlockStatement) (returnObj
 		returnObject, err = st.ResolveExpression(node.Init)
 	case ast.ThrowStatement:
 		returnObject, err = st.ResolveExpression(node.Init)
+		if err != nil {
+			return nil, err
+		}
 		thrownError, ok := returnObject.(ErrorValue)
 		if !ok {
 			return nil, InvalidThrowValueError(node)

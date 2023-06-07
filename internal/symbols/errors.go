@@ -297,3 +297,11 @@ func CannotGetNilEnumerableRangeError() error {
 func CannotSetNilEnumerableRangeError() error {
 	return fmt.Errorf("cannot set range of nil")
 }
+
+func MissingPropertyError(key string) error {
+	return fmt.Errorf("missing property %s", key)
+}
+
+func UnknownPropertyError(key string) error {
+	return fmt.Errorf("unknown property %s", key)
+}

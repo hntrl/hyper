@@ -28,10 +28,10 @@ func NewNilableClass(parentClass Class) NilableClass {
 		},
 		Comparators: ClassComparatorSet{
 			Comparator(Nil, tokens.EQUALS, func(a *NilableObject) (bool, error) {
-				return a.Value == nil, nil
+				return a.Object == nil, nil
 			}),
 			Comparator(Nil, tokens.NOT_EQUALS, func(a *NilableObject) (bool, error) {
-				return a.Value != nil, nil
+				return a.Object != nil, nil
 			}),
 		},
 		Properties: parentDescriptors.Properties,
@@ -296,8 +296,10 @@ func (av *ArrayValue) Value() interface{} {
 
 // @ 1.3.3 `Map` Object
 
+var Map = MapClass{}
+
 type MapClass struct {
-	Properties map[string]Class
+	Properties map[string]Class `hash:"ignore"`
 }
 
 func (MapClass) Name() string {
@@ -386,6 +388,7 @@ func (ErrorClass) Descriptors() *ClassDescriptors {
 type ErrorValue struct {
 	Name    string
 	Message string
+	Data    interface{}
 }
 
 func (ErrorValue) Class() Class {

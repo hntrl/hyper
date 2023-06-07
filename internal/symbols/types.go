@@ -169,24 +169,49 @@ func ShouldConstruct(target, value Class) error {
 		return nil
 	}
 	if targetArrayClass, ok := target.(ArrayClass); ok {
-		// If both the target class and the value's class are iterable, redo ShouldConstruct with their parent types
+		// If both the target class and the value's class are an array, redo ShouldConstruct with their parent types
 		if valueArrayClass, ok := value.(ArrayClass); ok {
 			return ShouldConstruct(targetArrayClass.ItemClass, valueArrayClass.ItemClass)
 		}
 	}
 	if valueMapClass, ok := value.(MapClass); ok {
 		// If the value class is a Map, it should construct IF:
-		//	1. The map has a `Properties` descriptor
-		//  2. The map doesn't have any properties that dont exist on the target class
-		//  3. The map isn't missing any properties that are defined on the target class
-		//  4. The map's properties are constructable to the target class's fields
+		//	1. The target class has a `Properties` descriptor
+		//  2. The target class has a map constructor
+		//  3. The map doesn't have any properties that dont exist on the target class
+		//  4. The map isn't missing any properties that are defined on the target class
+		//  5. The map's properties are constructable to the target class's fields
+		targetDescriptors := target.Descriptors()
+		if targetProperties := targetDescriptors.Properties; targetProperties != nil {
+			if constructor := targetDescriptors.Constructors.Get(valueMapClass); constructor != nil {
+				for key := range valueMapClass.Properties {
+					if _, ok := targetProperties[key]; !ok {
+						return UnknownPropertyError(key)
+					}
+				}
+				for key, targetProperty := range targetProperties {
+					valuePropertyClass := valueMapClass.Properties[key]
+					if valuePropertyClass == nil {
+						if _, ok := targetProperty.PropertyClass.(*NilableClass); !ok {
+							return MissingPropertyError(key)
+						}
+					} else {
+						err := ShouldConstruct(targetProperty.PropertyClass, valuePropertyClass)
+						if err != nil {
+							return err
+						}
+					}
+				}
+				return nil
+			}
+		}
 	}
 	if constructor := target.Descriptors().Constructors.Get(value); constructor != nil {
 		// If the target class has a constructor defined for the value's class, it should construct
 		return nil
 	}
 	if properties := value.Descriptors().Properties; properties != nil {
-		// If the and value class has properties, redo ShouldConstruct as if the value was a map
+		// If the value class has properties, redo ShouldConstruct as if the value was a map
 		propertyClassMap := map[string]Class{}
 		for key, attributes := range properties {
 			propertyClassMap[key] = attributes.PropertyClass
@@ -213,11 +238,68 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 			return newValueArray, nil
 		}
 	}
+	if valueMap, ok := value.(*MapValue); ok {
+		targetDescriptors := target.Descriptors()
+		if targetProperties := targetDescriptors.Properties; targetProperties != nil {
+			if constructor := targetDescriptors.Constructors.Get(valueMap.Class()); constructor != nil {
+				for key := range valueMap.Data {
+					if _, ok := targetProperties[key]; !ok {
+						return nil, UnknownPropertyError(key)
+					}
+				}
+				validationErrors := make(map[string]string)
+				propertyClasses := make(map[string]Class)
+				data := make(map[string]ValueObject)
+				for key, targetProperty := range targetDescriptors.Properties {
+					propertyClasses[key] = targetProperty.PropertyClass
+					value := valueMap.Data[key]
+					if value == nil {
+						if targetNilable, ok := targetProperty.PropertyClass.(NilableClass); ok {
+							data[key] = &NilableObject{ObjectClass: targetNilable, Object: nil}
+						} else {
+							validationErrors[key] = MissingPropertyError(key).Error()
+						}
+					} else {
+						constructedValue, err := Construct(targetProperty.PropertyClass, value)
+						if err != nil {
+							return nil, err
+						}
+						data[key] = constructedValue
+					}
+				}
+				if len(validationErrors) > 0 {
+					return nil, ErrorValue{
+						Name: "ValidationError",
+						Data: validationErrors,
+					}
+				}
+				return constructor.handler(&MapValue{
+					ParentClass: MapClass{
+						Properties: propertyClasses,
+					},
+					Data: data,
+				})
+			}
+		}
+	}
 	if constructor := target.Descriptors().Constructors.Get(value.Class()); constructor != nil {
 		return constructor.handler(value)
 	}
 	if properties := value.Class().Descriptors().Properties; properties != nil {
-		return Construct(target, &MapValue{})
+		propertyClasses := make(map[string]Class)
+		data := make(map[string]ValueObject)
+		for key, property := range properties {
+			propertyClasses[key] = property.PropertyClass
+			propertyValue, err := property.Getter(value)
+			if err != nil {
+				return nil, err
+			}
+			data[key] = propertyValue
+		}
+		return Construct(target, &MapValue{
+			ParentClass: MapClass{Properties: propertyClasses},
+			Data:        data,
+		})
 	}
 	return nil, CannotConstructError(target, value.Class())
 }
