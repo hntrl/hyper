@@ -1,6 +1,7 @@
 package symbols
 
 import (
+	"math"
 	"time"
 
 	"github.com/hntrl/hyper/internal/tokens"
@@ -115,6 +116,89 @@ func (StringValue) Class() Class {
 	return String
 }
 
+// @ 1.2.4 Numeric Primitives
+
+var NumericClasses = []Class{Number, Double, Integer, Float}
+
+func numericOperatorPredicate(numberConstructor *ClassConstructor, operandConstructor *ClassConstructor, cb func(float64, float64) float64) classOperatorFn {
+	return func(a, b ValueObject) (ValueObject, error) {
+		na, err := numberConstructor.handler(a)
+		if err != nil {
+			return nil, err
+		}
+		nb, err := numberConstructor.handler(b)
+		if err != nil {
+			return nil, err
+		}
+		result := cb(float64(na.(NumberValue)), float64(nb.(NumberValue)))
+		return operandConstructor.handler(NumberValue(result))
+	}
+}
+
+func numericComparatorPredicate(constructor *ClassConstructor, cb func(float64, float64) bool) classComparatorFn {
+	return func(a, b ValueObject) (bool, error) {
+		na, err := constructor.handler(a)
+		if err != nil {
+			return false, err
+		}
+		nb, err := constructor.handler(b)
+		if err != nil {
+			return false, err
+		}
+		return cb(float64(na.(NumberValue)), float64(nb.(NumberValue))), nil
+	}
+}
+
+var NumericOperators = ClassOperatorSet{}
+var NumericComparators = ClassComparatorSet{}
+
+func init() {
+	for _, operandClass := range NumericClasses {
+		numberConstructor := NumberDescriptors.Constructors.Get(operandClass)
+		operandConstructor := operandClass.Descriptors().Constructors.Get(Number)
+		NumericOperators = append(NumericOperators, ClassOperatorSet{
+			Operator(operandClass, tokens.ADD, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a + b
+			})),
+			Operator(operandClass, tokens.SUB, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a - b
+			})),
+			Operator(operandClass, tokens.MUL, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a * b
+			})),
+			Operator(operandClass, tokens.PWR, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return math.Pow(a, b)
+			})),
+			Operator(operandClass, tokens.QUO, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a / b
+			})),
+			Operator(operandClass, tokens.REM, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return math.Mod(a, b)
+			})),
+		}...)
+		NumericComparators = append(NumericComparators, ClassComparatorSet{
+			Comparator(operandClass, tokens.EQUALS, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a == b
+			})),
+			Comparator(operandClass, tokens.NOT_EQUALS, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a != b
+			})),
+			Comparator(operandClass, tokens.LESS, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a < b
+			})),
+			Comparator(operandClass, tokens.GREATER, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a > b
+			})),
+			Comparator(operandClass, tokens.LESS_EQUAL, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a <= b
+			})),
+			Comparator(operandClass, tokens.GREATER_EQUAL, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a >= b
+			})),
+		}...)
+	}
+}
+
 // @ 1.2.4.1 `Number` Primitive
 
 var (
@@ -132,8 +216,8 @@ var (
 				return NumberValue(val), nil
 			}),
 		},
-		Operators:   ClassOperatorSet{},
-		Comparators: ClassComparatorSet{},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
 	}
 )
 
@@ -172,8 +256,8 @@ var (
 				return DoubleValue(val), nil
 			}),
 		},
-		Operators:   ClassOperatorSet{},
-		Comparators: ClassComparatorSet{},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
 	}
 )
 
@@ -211,8 +295,8 @@ var (
 				return FloatValue(val), nil
 			}),
 		},
-		Operators:   ClassOperatorSet{},
-		Comparators: ClassComparatorSet{},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
 	}
 )
 
@@ -250,8 +334,8 @@ var (
 				return IntegerValue(val), nil
 			}),
 		},
-		Operators:   ClassOperatorSet{},
-		Comparators: ClassComparatorSet{},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
 	}
 )
 
