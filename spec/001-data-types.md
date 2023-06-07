@@ -106,7 +106,7 @@ Prototype methods do not exist as accessible properties on the class itself, onl
 
 ### 1.3 Language
 
-#### 1.3.1 `NilableObject`
+#### 1.3.1 `Nilable`
 
 #### 1.3.2 `Array`
 
