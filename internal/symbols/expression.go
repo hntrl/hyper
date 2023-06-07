@@ -405,6 +405,9 @@ func (st *SymbolTable) ResolveValueExpression(node ast.ValueExpression) (ValueOb
 				return nil, NonEnumerableIndexError(node, currentValueObject.Class())
 			}
 			startIndex, endIndex, err := st.ResolveIndexExpression(member, currentValueObject)
+			if err != nil {
+				return nil, err
+			}
 			if endIndex != -1 {
 				current, err = enumerable.GetRange(currentValueObject, startIndex, endIndex)
 				if err != nil {
