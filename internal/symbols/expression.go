@@ -22,9 +22,9 @@ func (st *SymbolTable) EvaluateTypeExpression(node ast.TypeExpression) (Class, e
 	if node.IsArray {
 		class = NewArrayClass(class)
 	}
-	// if node.IsOptional {
-
-	// }
+	if node.IsOptional {
+		class = NewNilableClass(class)
+	}
 	return class, nil
 }
 

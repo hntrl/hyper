@@ -269,3 +269,31 @@ func InvalidOperatorError(operator tokens.Token) error {
 func InvalidCompareOperatorError(operator tokens.Token) error {
 	return fmt.Errorf("invalid compare operator %s", operator)
 }
+
+func CannotOperateNilValueError() error {
+	return fmt.Errorf("cannot operate with nil value")
+}
+
+func CannotCompareNilValueError() error {
+	return fmt.Errorf("cannot compare nil value")
+}
+
+func CannotGetNilEnumerableLengthError() error {
+	return fmt.Errorf("cannot get length of nil")
+}
+
+func CannotGetNilEnumerableIndexError() error {
+	return fmt.Errorf("cannot get index of nil")
+}
+
+func CannotSetNilEnumerableIndexError() error {
+	return fmt.Errorf("cannot set index of nil")
+}
+
+func CannotGetNilEnumerableRangeError() error {
+	return fmt.Errorf("cannot get range of nil")
+}
+
+func CannotSetNilEnumerableRangeError() error {
+	return fmt.Errorf("cannot set range of nil")
+}

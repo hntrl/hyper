@@ -3,7 +3,162 @@ package symbols
 import (
 	"fmt"
 	"math"
+
+	"github.com/hntrl/hyper/internal/tokens"
 )
+
+// @ 1.3.1 `Nilable` Object
+
+type NilableClass struct {
+	ParentClass Class
+	descriptors *ClassDescriptors `hash:"ignore"`
+}
+
+func NewNilableClass(parentClass Class) NilableClass {
+	parentDescriptors := parentClass.Descriptors()
+	nilableClass := NilableClass{ParentClass: parentClass}
+	nilableClass.descriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{
+			Constructor(Nil, func() (*NilableObject, error) {
+				return &NilableObject{
+					ObjectClass: nilableClass,
+					Object:      nil,
+				}, nil
+			}),
+		},
+		Comparators: ClassComparatorSet{
+			Comparator(Nil, tokens.EQUALS, func(a *NilableObject) (bool, error) {
+				return a.Value == nil, nil
+			}),
+			Comparator(Nil, tokens.NOT_EQUALS, func(a *NilableObject) (bool, error) {
+				return a.Value != nil, nil
+			}),
+		},
+		Properties: parentDescriptors.Properties,
+	}
+	if parentDescriptors.Constructors != nil {
+		for hash, constructor := range parentDescriptors.Constructors {
+			nilableClass.descriptors.Constructors[hash] = &ClassConstructor{
+				forClass: constructor.forClass,
+				handler: func(val ValueObject) (ValueObject, error) {
+					constructedVal, err := constructor.handler(val)
+					if err != nil {
+						return nil, err
+					}
+					return &NilableObject{nilableClass, constructedVal}, nil
+				},
+			}
+		}
+	}
+	if parentDescriptors.Operators != nil {
+		parentDescriptors.Operators = ClassOperatorSet{}
+		for hash, operator := range parentDescriptors.Operators {
+			nilableClass.descriptors.Operators[hash] = &ClassOperator{
+				operandClass: operator.operandClass,
+				token:        operator.token,
+				handler: func(a ValueObject, b ValueObject) (ValueObject, error) {
+					nilable := a.(*NilableObject)
+					if nilable.Object == nil {
+						return nil, CannotOperateNilValueError()
+					}
+					computedVal, err := operator.handler(nilable.Object, b)
+					if err != nil {
+						return nil, err
+					}
+					return &NilableObject{nilableClass, computedVal}, nil
+				},
+			}
+		}
+	}
+	if parentDescriptors.Comparators != nil {
+		for hash, comparator := range parentDescriptors.Comparators {
+			nilableClass.descriptors.Comparators[hash] = &ClassComparator{
+				operandClass: comparator.operandClass,
+				token:        comparator.token,
+				handler: func(a ValueObject, b ValueObject) (bool, error) {
+					nilable := a.(*NilableObject)
+					if nilable.Object == nil {
+						return false, CannotOperateNilValueError()
+					}
+					return comparator.handler(nilable.Object, b)
+				},
+			}
+		}
+	}
+	if parentDescriptors.Enumerable != nil {
+		nilableClass.descriptors.Enumerable = &ClassEnumerationRules{}
+		rules := parentDescriptors.Enumerable
+		if rules.GetLength != nil {
+			nilableClass.descriptors.Enumerable.GetLength = func(a ValueObject) (int, error) {
+				nilable := a.(*NilableObject)
+				if nilable.Object == nil {
+					return -1, CannotGetNilEnumerableLengthError()
+				}
+				return rules.GetLength(nilable.Object)
+			}
+		}
+		if rules.GetIndex != nil {
+			nilableClass.descriptors.Enumerable.GetIndex = func(a ValueObject, idx int) (ValueObject, error) {
+				nilable := a.(*NilableObject)
+				if nilable.Object == nil {
+					return nil, CannotGetNilEnumerableLengthError()
+				}
+				return rules.GetIndex(nilable.Object, idx)
+			}
+		}
+		if rules.SetIndex != nil {
+			nilableClass.descriptors.Enumerable.SetIndex = func(a ValueObject, idx int, b ValueObject) error {
+				nilable := a.(*NilableObject)
+				if nilable.Object == nil {
+					return CannotSetNilEnumerableIndexError()
+				}
+				return rules.SetIndex(a, idx, b)
+			}
+		}
+		if rules.GetRange != nil {
+			nilableClass.descriptors.Enumerable.GetRange = func(a ValueObject, start int, end int) (ValueObject, error) {
+				nilable := a.(*NilableObject)
+				if nilable.Object == nil {
+					return nil, CannotGetNilEnumerableRangeError()
+				}
+				return rules.GetRange(nilable.Object, start, end)
+			}
+		}
+		if rules.SetRange != nil {
+			nilableClass.descriptors.Enumerable.SetRange = func(a ValueObject, start int, end int, b ValueObject) error {
+				nilable := a.(*NilableObject)
+				if nilable.Object == nil {
+					return CannotSetNilEnumerableRangeError()
+				}
+				return rules.SetRange(nilable.Object, start, end, b)
+			}
+		}
+	}
+	return nilableClass
+}
+
+func (nc NilableClass) Name() string {
+	return fmt.Sprintf("%s?", nc.ParentClass.Name())
+}
+
+func (nc NilableClass) Descriptors() *ClassDescriptors {
+	return nc.descriptors
+}
+
+type NilableObject struct {
+	ObjectClass NilableClass
+	Object      ValueObject
+}
+
+func (no *NilableObject) Class() Class {
+	return no.ObjectClass
+}
+func (no *NilableObject) Value() interface{} {
+	if no.Object == nil {
+		return nil
+	}
+	return no.Object.Value()
+}
 
 // @ 1.3.2 `Array` Object
 
@@ -14,7 +169,9 @@ type ArrayClass struct {
 
 // TODO: "cache" the creation of this array class to reduce reflection calls
 func NewArrayClass(itemClass Class) ArrayClass {
-	arrayClass := ArrayClass{ItemClass: itemClass}
+	arrayClass := ArrayClass{
+		ItemClass: itemClass,
+	}
 	arrayClass.descriptors = &ClassDescriptors{
 		Constructors: ClassConstructorSet{
 			Constructor(arrayClass, func(arr ArrayValue) (ArrayValue, error) {
@@ -193,4 +350,50 @@ func NewMapValue() *MapValue {
 		ParentClass: NewMapClass(),
 		Data:        map[string]ValueObject{},
 	}
+}
+
+// @ 1.3.4 `Error` Object
+
+var (
+	Error            = ErrorClass{}
+	ErrorDescriptors = &ClassDescriptors{
+		Properties: ClassPropertyMap{
+			"name": PropertyAttributes(PropertyAttributesOptions{
+				Class: String,
+				Getter: func(a ErrorValue) (StringValue, error) {
+					return StringValue(a.Name), nil
+				},
+			}),
+			"message": PropertyAttributes(PropertyAttributesOptions{
+				Class: String,
+				Getter: func(a ErrorValue) (StringValue, error) {
+					return StringValue(a.Message), nil
+				},
+			}),
+		},
+	}
+)
+
+type ErrorClass struct{}
+
+func (ErrorClass) Name() string {
+	return "Error"
+}
+func (ErrorClass) Descriptors() *ClassDescriptors {
+	return ErrorDescriptors
+}
+
+type ErrorValue struct {
+	Name    string
+	Message string
+}
+
+func (ErrorValue) Class() Class {
+	return Error
+}
+func (ev ErrorValue) Value() interface{} {
+	return ev
+}
+func (ev ErrorValue) Error() string {
+	return fmt.Sprintf("%s: %s", ev.Name, ev.Message)
 }
