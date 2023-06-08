@@ -305,3 +305,7 @@ func MissingPropertyError(key string) error {
 func UnknownPropertyError(key string) error {
 	return fmt.Errorf("unknown property %s", key)
 }
+
+func ExpectedCallbackSignatureError(expected callbackSignature, got callbackSignature) error {
+	return fmt.Errorf("expected signature %s, got %s", expected.String(), got.String())
+}
