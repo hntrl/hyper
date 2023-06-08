@@ -111,7 +111,7 @@ type ClassMethodOptions struct {
 }
 
 func NewClassMethod(opts ClassMethodOptions) *ClassMethod {
-	fn, err := makeClassMethodFn(opts.Class, opts.Arguments, opts.Handler)
+	fn, err := makeClassMethodFn(opts.Class, opts.Arguments, opts.Returns, opts.Handler)
 	if err != nil {
 		panic(err)
 	}
@@ -123,10 +123,51 @@ func NewClassMethod(opts ClassMethodOptions) *ClassMethod {
 	}
 }
 
+func (cm ClassMethod) CallableForValue(val ValueObject) Callable {
+	return Function{
+		argumentTypes: cm.ArgumentTypes,
+		returnType:    cm.ReturnType,
+		handler: func(args []ValueObject) (ValueObject, error) {
+			argsWithValue := append([]ValueObject{val}, args...)
+			return cm.handler(argsWithValue...)
+		},
+	}
+}
+
 type classMethodFn func(...ValueObject) (ValueObject, error)
 
-func makeClassMethodFn(class Class, args []Class, callback interface{}) (classMethodFn, error) {
-	return nil, nil
+func makeClassMethodFn(class Class, args []Class, returns Class, callback interface{}) (classMethodFn, error) {
+	expectedSignature := callbackSignature{
+		args:    make([]reflect.Type, len(args)+1),
+		returns: []reflect.Type{},
+	}
+	expectedSignature.args[0] = emptyValueObjectType
+	for idx := range args {
+		expectedSignature.args[idx+1] = emptyValueObjectType
+	}
+	if returns != nil {
+		expectedSignature.returns = []reflect.Type{emptyValueObjectType, emptyErrorType}
+	} else {
+		expectedSignature.returns = []reflect.Type{emptyErrorType}
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(args ...ValueObject) (ValueObject, error) {
+		argValues := make([]reflect.Value, len(args))
+		for idx, arg := range args {
+			argValues[idx] = reflect.ValueOf(arg)
+		}
+		returnValues := cb.Call(argValues)
+		if value, ok := returnValues[0].Interface().(ValueObject); ok {
+			err := returnValues[1].Interface().(error)
+			return value, err
+		} else {
+			err := returnValues[0].Interface().(error)
+			return nil, err
+		}
+	}, nil
 }
 
 // @ 1.1.4.1 `Constructors` Class Descriptor

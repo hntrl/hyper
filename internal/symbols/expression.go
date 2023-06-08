@@ -249,7 +249,7 @@ func resolveValueExpressionMember(st *SymbolTable, value ScopeValue, member stri
 		if descriptors.Prototype != nil {
 			classMethod, ok := descriptors.Prototype[member]
 			if ok {
-				return classMethod, nil
+				return classMethod.CallableForValue(object), nil
 			}
 		}
 		if descriptors.Properties != nil {
