@@ -1,6 +1,8 @@
 package symbols
 
 import (
+	"reflect"
+
 	"github.com/hntrl/hyper/internal/tokens"
 	"github.com/mitchellh/hashstructure"
 )
@@ -22,6 +24,8 @@ type ValueObject interface {
 	// The class assumed by the value object
 	Class() Class
 }
+
+var emptyValueObjectType = reflect.TypeOf((*ValueObject)(nil))
 
 // @ 1.1.3 `Callable` Type
 
@@ -158,9 +162,21 @@ func Constructor(forClass Class, callback interface{}) *ClassConstructor {
 type classConstructorFn func(ValueObject) (ValueObject, error)
 
 func makeClassConstructorFn(forClass Class, callback interface{}) (classConstructorFn, error) {
-	// TODO: the `return` type for the classConstructorFn isn't evaluated since it would create recursion since that context won't be available when creating class constructors
-	// TODO: implement this
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType},
+		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject) (ValueObject, error) {
+		args := []reflect.Value{reflect.ValueOf(a)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(ValueObject)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 
 // Returns no error if a class can be constructed into another class.
@@ -339,7 +355,21 @@ func Operator(operandClass Class, token tokens.Token, callback interface{}) *Cla
 type classOperatorFn func(ValueObject, ValueObject) (ValueObject, error)
 
 func makeClassOperatorFn(operandClass Class, callback interface{}) (classOperatorFn, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyValueObjectType},
+		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a, b ValueObject) (ValueObject, error) {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(ValueObject)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 
 func ShouldOperate(token tokens.Token, target, value Class) error {
@@ -403,8 +433,21 @@ func Comparator(operandClass Class, token tokens.Token, callback interface{}) *C
 type classComparatorFn func(ValueObject, ValueObject) (bool, error)
 
 func makeClassComparatorFn(operandClass Class, callback interface{}) (classComparatorFn, error) {
-	// TOOD: write this
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyValueObjectType},
+		returns: []reflect.Type{emptyBoolType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a, b ValueObject) (bool, error) {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(bool)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 
 func ShouldCompare(token tokens.Token, target, value Class) error {
@@ -471,10 +514,37 @@ type ClassGetterMethod func(ValueObject) (ValueObject, error)
 type ClassSetterMethod func(ValueObject, ValueObject) error
 
 func makeClassGetterMethod(propertyClass Class, callback interface{}) (ClassGetterMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType},
+		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject) (ValueObject, error) {
+		args := []reflect.Value{reflect.ValueOf(a)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(ValueObject)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 func makeClassSetterMethod(propertyClass Class, callback interface{}) (ClassSetterMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyValueObjectType},
+		returns: []reflect.Type{emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a, b ValueObject) error {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
+		returnValues := cb.Call(args)
+		err := returnValues[0].Interface().(error)
+		return err
+	}, nil
 }
 
 // @ 1.1.4.5 `Enumerable` Class Descriptor
@@ -542,19 +612,87 @@ type EnumerableGetRangeMethod func(ValueObject, int, int) (ValueObject, error)
 type EnumerableSetRangeMethod func(ValueObject, int, int, ValueObject) error
 
 func makeEnumerableGetLengthMethod(callback interface{}) (EnumerableGetLengthMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType},
+		returns: []reflect.Type{emptyIntType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject) (int, error) {
+		args := []reflect.Value{reflect.ValueOf(a)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(int)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 func makeEnumerableGetIndexMethod(callback interface{}) (EnumerableGetIndexMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyIntType},
+		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject, b int) (ValueObject, error) {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(ValueObject)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 func makeEnumerableSetIndexMethod(callback interface{}) (EnumerableSetIndexMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyIntType, emptyValueObjectType},
+		returns: []reflect.Type{emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject, b int, c ValueObject) error {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c)}
+		returnValues := cb.Call(args)
+		err := returnValues[0].Interface().(error)
+		return err
+	}, nil
 }
 func makeEnumerableGetRangeMethod(callback interface{}) (EnumerableGetRangeMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyIntType, emptyIntType},
+		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject, b int, c int) (ValueObject, error) {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c)}
+		returnValues := cb.Call(args)
+		value := returnValues[0].Interface().(ValueObject)
+		err := returnValues[1].Interface().(error)
+		return value, err
+	}, nil
 }
 func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMethod, error) {
-	return nil, nil
+	expectedSignature := callbackSignature{
+		args:    []reflect.Type{emptyValueObjectType, emptyIntType, emptyIntType, emptyValueObjectType},
+		returns: []reflect.Type{emptyErrorType},
+	}
+	cb := newCallback(callback)
+	if !cb.AcceptsParameters(expectedSignature) {
+		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+	}
+	return func(a ValueObject, b int, c int, d ValueObject) error {
+		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c), reflect.ValueOf(d)}
+		returnValues := cb.Call(args)
+		err := returnValues[0].Interface().(error)
+		return err
+	}, nil
 }
 
 // @ 1.1.4.6 `Prototype` Class Descriptor
