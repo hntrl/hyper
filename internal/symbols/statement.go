@@ -2,15 +2,16 @@ package symbols
 
 import (
 	"github.com/hntrl/hyper/internal/ast"
+	. "github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
 func (st *SymbolTable) ResolveDeclarationStatement(node ast.DeclarationStatement) error {
 	if st.Immutable[node.Name] != nil {
-		return CannotReassignImmutableValueError(node, node.Name)
+		return NodeError(node, CannotReassignImmutableValue, "cannot reassign immutable value %s", node.Name)
 	}
 	if st.Local[node.Name] != nil {
-		return CannotRedeclareValueError(node)
+		return NodeError(node, CannotRedeclareValue, "cannot redeclare value %s", node.Name)
 	}
 	obj, err := st.ResolveExpression(node.Init)
 	if err != nil {
@@ -21,10 +22,10 @@ func (st *SymbolTable) ResolveDeclarationStatement(node ast.DeclarationStatement
 }
 func (st *SymbolTable) EvaluateDeclarationStatement(node ast.DeclarationStatement) error {
 	if st.Immutable[node.Name] != nil {
-		return CannotReassignImmutableValueError(node, node.Name)
+		return NodeError(node, CannotReassignImmutableValue, "cannot reassign immutable value %s", node.Name)
 	}
 	if st.Local[node.Name] != nil {
-		return CannotRedeclareValueError(node)
+		return NodeError(node, CannotRedeclareValue, "cannot redeclare value %s", node.Name)
 	}
 	class, err := st.EvaluateExpression(node.Init)
 	if err != nil {
@@ -43,11 +44,11 @@ func resolveAssignmentStatementWithSingleMember(st *SymbolTable, memberNode ast.
 	case string:
 		properties := descriptors.Properties
 		if properties == nil {
-			return CannotSetPropertyError(current, memberInit)
+			return StandardError(CannotSetProperty, "cannot set property %s on %s", memberInit, current.Class().Name())
 		}
 		property := properties[memberInit]
 		if property.Setter == nil {
-			return CannotSetImmutablePropertyError(memberInit)
+			return StandardError(CannotSetProperty, "cannot set immutable property %s on %s", memberInit, current.Class().Name())
 		}
 		currentValue, err := property.Getter(current)
 		if err != nil {
@@ -61,7 +62,7 @@ func resolveAssignmentStatementWithSingleMember(st *SymbolTable, memberNode ast.
 	case ast.IndexExpression:
 		enumerable := descriptors.Enumerable
 		if enumerable == nil {
-			return CannotSetNonEnumerableIndexError(current.Class())
+			return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Class().Name())
 		}
 		startIndex, endIndex, err := st.ResolveIndexExpression(memberInit, current)
 		if err != nil {
@@ -98,17 +99,17 @@ func evaluateAssignmentStatementWithSingleMember(st *SymbolTable, memberNode ast
 	case string:
 		properties := descriptors.Properties
 		if properties == nil {
-			return CannotSetPropertyError(current, memberInit)
+			return StandardError(CannotSetProperty, "cannot set property %s on %s", memberInit, current.Name())
 		}
 		property := properties[memberInit]
 		if property.Setter == nil {
-			return CannotSetImmutablePropertyError(memberInit)
+			return StandardError(CannotSetProperty, "cannot set immutable property %s on %s", memberInit, current.Name())
 		}
 		return operandValidator(property.PropertyClass)
 	case ast.IndexExpression:
 		enumerable := descriptors.Enumerable
 		if enumerable == nil {
-			return CannotSetNonEnumerableIndexError(current)
+			return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Name())
 		}
 		err := st.EvaluateIndexExpression(memberInit, current)
 		if err != nil {
@@ -133,7 +134,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 		case string:
 			properties := descriptors.Properties
 			if properties == nil {
-				return CannotSetPropertyError(current.Class(), memberNode)
+				return StandardError(CannotSetProperty, "cannot set property %s on %s", memberNode, current.Class().Name())
 			}
 			propertyValue, err := properties[memberNode].Getter(current)
 			if err != nil {
@@ -143,7 +144,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 		case ast.IndexExpression:
 			enumerable := descriptors.Enumerable
 			if enumerable == nil {
-				return CannotSetNonEnumerableIndexError(current.Class())
+				return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Class().Name())
 			}
 			startIndex, endIndex, err := st.ResolveIndexExpression(memberNode, current)
 			if err != nil {
@@ -151,7 +152,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 			}
 			if memberNode.IsRange {
 				if endIndex > startIndex {
-					return InvalidAssignmentIndicesError(memberNode)
+					return StandardError(InvalidAssignmentTarget, "end index cannot be greater than start index in assignment")
 				}
 				for i := startIndex; i <= endIndex; i++ {
 					indexedValue, err := enumerable.GetIndex(current, i)
@@ -160,7 +161,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 					}
 					err = resolveAssignmentStatementForMembers(st, members[1:], indexedValue, operandPredicate)
 					if err != nil {
-						return NodeError(memberNode, "problem when evaluting assignment at index %d: %s", i, err.Error())
+						return err
 					}
 				}
 				return nil
@@ -185,13 +186,13 @@ func evaluateAssignmentStatementForMembers(st *SymbolTable, members []ast.Assign
 		case string:
 			properties := descriptors.Properties
 			if properties == nil {
-				return CannotSetPropertyError(current, memberNode)
+				return StandardError(CannotSetProperty, "cannot set property %s on %s", memberNode, current.Name())
 			}
 			return evaluateAssignmentStatementForMembers(st, members[1:], properties[memberNode].PropertyClass, operandValidator)
 		case ast.IndexExpression:
 			enumerable := descriptors.Enumerable
 			if enumerable == nil {
-				return CannotSetNonEnumerableIndexError(current)
+				return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Name())
 			}
 			err := st.EvaluateIndexExpression(memberNode, current)
 			if err != nil {
@@ -209,18 +210,18 @@ func evaluateAssignmentStatementForMembers(st *SymbolTable, members []ast.Assign
 func (st *SymbolTable) ResolveAssignmentStatement(node ast.AssignmentStatement) error {
 	firstMember, ok := node.Target.Members[0].Init.(string)
 	if !ok {
-		return InvalidAssignmentStatementTargetError(node)
+		return NodeError(node, InvalidSyntaxTree, "invalid assignment statement target")
 	}
 	if _, ok := st.Immutable[firstMember]; ok {
-		return CannotReassignImmutableValueError(node, firstMember)
+		return NodeError(node.Target, CannotReassignImmutableValue, "cannot reassign immutable value %s", firstMember)
 	}
 	scopeValue := st.Local[firstMember]
 	if scopeValue == nil {
-		return UnknownSelectorError(node.Target, firstMember)
+		return NodeError(node.Target, UnknownSelector, "unknown selector %s", firstMember)
 	}
 	currentValue, ok := scopeValue.(ValueObject)
 	if !ok {
-		return CannotAssignNonValueObjectError(node)
+		return NodeError(node.Target, InvalidAssignmentTarget, "assignment target must be a value object")
 	}
 	operand, err := st.ResolveExpression(node.Init)
 	if err != nil {
@@ -230,19 +231,19 @@ func (st *SymbolTable) ResolveAssignmentStatement(node ast.AssignmentStatement) 
 		effectOperator := tokens.GetEffectOperator(node.Operator)
 		operandPredicate := func(currentValue ValueObject) (ValueObject, error) {
 			if effectOperator == tokens.ASSIGN {
-				return operand, nil
+				return Construct(currentValue.Class(), operand)
 			} else {
 				return Operate(effectOperator, currentValue, operand)
 			}
 		}
 		err := resolveAssignmentStatementForMembers(st, node.Target.Members[1:], currentValue, operandPredicate)
 		if err != nil {
-			return err
+			return WrappedNodeError(node.Target, err)
 		}
 	} else {
 		constructedValue, err := Construct(currentValue.Class(), operand)
 		if err != nil {
-			return err
+			return WrappedNodeError(node.Target, err)
 		}
 		st.Local[firstMember] = constructedValue
 	}
@@ -251,18 +252,18 @@ func (st *SymbolTable) ResolveAssignmentStatement(node ast.AssignmentStatement) 
 func (st *SymbolTable) EvaluateAssignmentStatement(node ast.AssignmentStatement) error {
 	firstMember, ok := node.Target.Members[0].Init.(string)
 	if !ok {
-		return InvalidAssignmentStatementTargetError(node)
+		return NodeError(node, InvalidSyntaxTree, "invalid assignment statement target")
 	}
 	if _, ok := st.Immutable[firstMember]; ok {
-		return CannotReassignImmutableValueError(node, firstMember)
+		return NodeError(node.Target, CannotReassignImmutableValue, "cannot reassign immutable value %s", firstMember)
 	}
 	scopeValue := st.Local[firstMember]
 	if scopeValue == nil {
-		return UnknownSelectorError(node.Target, firstMember)
+		return NodeError(node.Target, UnknownSelector, "unknown selector %s", firstMember)
 	}
 	currentClass, ok := scopeValue.(Class)
 	if !ok {
-		return CannotAssignNonValueObjectError(node)
+		return NodeError(node.Target, InvalidAssignmentTarget, "assignment target must be a value object")
 	}
 	operand, err := st.EvaluateExpression(node.Init)
 	if err != nil {
@@ -279,10 +280,13 @@ func (st *SymbolTable) EvaluateAssignmentStatement(node ast.AssignmentStatement)
 		}
 		err := evaluateAssignmentStatementForMembers(st, node.Target.Members[1:], currentClass, operandValidator)
 		if err != nil {
-			return err
+			return WrappedNodeError(node.Target, err)
 		}
 	} else {
-		return ShouldConstruct(currentClass, operand)
+		err := ShouldConstruct(currentClass, operand)
+		if err != nil {
+			return WrappedNodeError(node.Target, err)
+		}
 	}
 	return nil
 }
@@ -294,7 +298,7 @@ func (st *SymbolTable) ResolveIfStatement(node ast.IfStatement) (ValueObject, er
 	}
 	conditionResult, ok := condition.(BooleanValue)
 	if !ok {
-		return nil, BadIfConditionError(node)
+		return nil, NodeError(node.Condition, InvalidIfCondition, "if condition must be a boolean")
 	}
 	if conditionResult {
 		return st.ResolveBlock(node.Body)
@@ -306,7 +310,7 @@ func (st *SymbolTable) ResolveIfStatement(node ast.IfStatement) (ValueObject, er
 		case ast.Block:
 			return st.ResolveBlock(alt)
 		default:
-			return nil, BadIfAlternateError(node.Alternate)
+			return nil, NodeError(alt, InvalidSyntaxTree, "inavlid if condition alternate")
 		}
 	}
 	return nil, nil
@@ -317,25 +321,29 @@ func (st *SymbolTable) EvaluateIfStatement(node ast.IfStatement, shouldReturn Cl
 		return false, err
 	}
 	if _, ok := conditionClass.(BooleanClass); !ok {
-		return false, BadIfConditionError(node)
+		return false, NodeError(node.Condition, InvalidIfCondition, "if condition must be a boolean")
 	}
 	blockReturns, err := st.EvaluateBlock(node.Body, shouldReturn)
 	if err != nil {
 		return false, err
 	}
-	switch alt := node.Alternate.(type) {
-	case ast.IfStatement:
-		altStatementReturns, err := st.EvaluateIfStatement(alt, shouldReturn)
-		if err != nil {
-			return false, err
+	if node.Alternate != nil {
+		switch alt := node.Alternate.(type) {
+		case ast.IfStatement:
+			altStatementReturns, err := st.EvaluateIfStatement(alt, shouldReturn)
+			if err != nil {
+				return false, err
+			}
+			return blockReturns && altStatementReturns, nil
+		case ast.Block:
+			elseBlockReturns, err := st.EvaluateBlock(alt, shouldReturn)
+			if err != nil {
+				return false, err
+			}
+			return blockReturns && elseBlockReturns, nil
+		default:
+			return false, NodeError(alt, InvalidSyntaxTree, "invalid if condition alternate")
 		}
-		return blockReturns && altStatementReturns, nil
-	case ast.Block:
-		elseBlockReturns, err := st.EvaluateBlock(alt, shouldReturn)
-		if err != nil {
-			return false, err
-		}
-		return blockReturns && elseBlockReturns, nil
 	}
 	return false, nil
 }
@@ -350,7 +358,7 @@ loopBlock:
 		}
 		conditionResult, ok := condition.(BooleanValue)
 		if !ok {
-			return nil, BadWhileConditionError(node)
+			return nil, NodeError(node.Condition, InvalidWhileCondition, "while loop condition must be a boolean")
 		}
 		if !conditionResult {
 			break
@@ -377,7 +385,7 @@ func (st *SymbolTable) EvaluateWhileStatement(node ast.WhileStatement, shouldRet
 		return false, err
 	}
 	if _, ok := conditionClass.(BooleanClass); !ok {
-		return false, BadWhileConditionError(node)
+		return false, NodeError(node.Condition, InvalidWhileCondition, "while loop condition must be a Boolean")
 	}
 	scopeTable := st.StartLoop()
 	return scopeTable.EvaluateBlock(node.Body, shouldReturn)
@@ -399,7 +407,7 @@ loopBlock:
 		}
 		conditionResult, ok := condition.(BooleanValue)
 		if !ok {
-			return nil, BadForConditionError(conditionBlock.Condition)
+			return nil, NodeError(conditionBlock.Condition, InvalidForCondition, "for loop condition must be a Boolean")
 		}
 		if !conditionResult {
 			break loopBlock
@@ -445,7 +453,7 @@ func evaluateForStatementWithForCondition(st *SymbolTable, conditionBlock ast.Fo
 		return false, err
 	}
 	if _, ok := conditionClass.(BooleanClass); !ok {
-		return false, BadForConditionError(conditionBlock.Condition)
+		return false, NodeError(conditionBlock.Condition, InvalidForCondition, "for loop condition must be a Boolean")
 	}
 	switch updateNode := conditionBlock.Update.(type) {
 	case ast.Expression:
@@ -467,9 +475,10 @@ func resolveForStatementWithRangeCondition(st *SymbolTable, conditionBlock ast.R
 	if err != nil {
 		return nil, err
 	}
+	// TODO: use enumerable instead of array value
 	arr, ok := target.(*ArrayValue)
 	if !ok {
-		return nil, NotIterableError(conditionBlock.Target, target)
+		return nil, NodeError(conditionBlock.Target, CannotEnumerate, "%s is not enumerable", target.Class().Name())
 	}
 	scopeTable := st.StartLoop()
 loopBlock:
@@ -499,7 +508,7 @@ func evaluateForStatementWithRangeCondition(st *SymbolTable, conditionBlock ast.
 	}
 	arrayClass, ok := targetClass.(ArrayClass)
 	if !ok {
-		return false, NotIterableError(conditionBlock.Target, targetClass)
+		return false, NodeError(conditionBlock.Target, CannotEnumerate, "%s is not enumerable", targetClass.Name())
 	}
 	scopeTable := st.StartLoop()
 	scopeTable.Local[conditionBlock.Index] = Integer
@@ -532,8 +541,9 @@ func (st *SymbolTable) ResolveSwitchBlock(node ast.SwitchBlock) (ValueObject, er
 		return nil, err
 	}
 	comparators := target.Class().Descriptors().Comparators
+	// TODO: see if the equals comparator exists
 	if comparators == nil {
-		return nil, InoperableSwitchTargetError(node, target)
+		return nil, NodeError(node.Target, InvalidSwitchTarget, "switch target %s is not operable", target.Class().Name())
 	}
 	resolved := false
 	for _, caseBlock := range node.Statements {
@@ -546,7 +556,7 @@ func (st *SymbolTable) ResolveSwitchBlock(node ast.SwitchBlock) (ValueObject, er
 		}
 		conditionPassed, err := Compare(tokens.EQUALS, target, caseCondition)
 		if err != nil {
-			return nil, NodeError(caseBlock, err.Error())
+			return nil, WrappedNodeError(caseBlock.Condition, err)
 		}
 		if conditionPassed {
 			resolved = true
@@ -582,14 +592,14 @@ func (st *SymbolTable) EvaluateSwitchBlock(node ast.SwitchBlock, shouldReturn Cl
 	}
 	comparators := targetClass.Descriptors().Comparators
 	if comparators == nil {
-		return false, InoperableSwitchTargetError(node, targetClass)
+		return false, NodeError(node.Target, InvalidSwitchTarget, "switch target %s is not operable", targetClass.Name())
 	}
 	defaultBlockReturns := false
 	hasDefaultBlock := false
 	for _, caseBlock := range node.Statements {
 		if caseBlock.IsDefault {
 			if hasDefaultBlock {
-				return false, MultipleSwitchDefaultBlocksError(node)
+				return false, NodeError(caseBlock, DuplicateDefaultSwitchStatements, "switch statement can only have one default block")
 			}
 			hasDefaultBlock = true
 			defaultBlockReturns, err = st.EvaluateBlock(caseBlock.Body, shouldReturn)
@@ -603,7 +613,7 @@ func (st *SymbolTable) EvaluateSwitchBlock(node ast.SwitchBlock, shouldReturn Cl
 			}
 			err = ShouldCompare(tokens.EQUALS, targetClass, caseConditionClass)
 			if err != nil {
-				return false, err
+				return false, WrappedNodeError(caseBlock.Condition, err)
 			}
 			_, err = st.EvaluateBlock(caseBlock.Body, shouldReturn)
 			if err != nil {
@@ -662,11 +672,11 @@ func (st *SymbolTable) ResolveBlockStatement(node ast.BlockStatement) (returnObj
 		}
 		thrownError, ok := returnObject.(ErrorValue)
 		if !ok {
-			return nil, InvalidThrowValueError(node)
+			return nil, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnObject.Class().Name())
 		}
 		return nil, thrownError
 	default:
-		return nil, UnknownBlockStatementError(node)
+		return nil, NodeError(node, InvalidSyntaxTree, "unknown block statement type %T", node)
 	}
 	return returnObject, err
 }
@@ -686,11 +696,11 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 		returns, err = st.EvaluateForStatement(node, shouldReturn)
 	case ast.ContinueStatement:
 		if st.LoopState == nil {
-			return false, ContinueOutsideLoopError(node)
+			return false, NodeError(node, BadLoopControlStatement, "continue statement outside loop")
 		}
 	case ast.BreakStatement:
 		if st.LoopState == nil {
-			return false, BreakOutsideLoopError(node)
+			return false, NodeError(node, BadLoopControlStatement, "break statement outside loop")
 		}
 	case ast.SwitchBlock:
 		returns, err = st.EvaluateSwitchBlock(node, shouldReturn)
@@ -702,7 +712,7 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 			return false, err
 		}
 		if !classEquals(returnedClass, shouldReturn) {
-			return false, MismatchedReturnClassError(node, returnedClass, shouldReturn)
+			return false, NodeError(node, InvalidReturnType, "should return %s, got %s", returnedClass.Name(), shouldReturn.Name())
 		}
 		return true, nil
 	case ast.ThrowStatement:
@@ -711,11 +721,11 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 			return false, err
 		}
 		if _, ok := returnedClass.(ErrorClass); !ok {
-			return false, InvalidThrowValueError(node)
+			return false, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnedClass.Name())
 		}
 		return true, nil
 	default:
-		return false, UnknownBlockStatementError(node)
+		return false, NodeError(node, InvalidSyntaxTree, "unknown block statement type %T", node)
 	}
 	return returns, err
 }

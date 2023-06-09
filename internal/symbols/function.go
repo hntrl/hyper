@@ -4,6 +4,7 @@ import (
 	"reflect"
 
 	"github.com/hntrl/hyper/internal/ast"
+	. "github.com/hntrl/hyper/internal/symbols/errors"
 )
 
 type Function struct {
@@ -57,7 +58,7 @@ func makeFunctionHandlerFn(args []Class, returns Class, callback interface{}) (f
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(args ...ValueObject) (ValueObject, error) {
 		argValues := make([]reflect.Value, len(args))
@@ -86,7 +87,7 @@ func (st *SymbolTable) ResolveFunctionBlock(node ast.FunctionBlock) (*Function, 
 		return nil, err
 	}
 	if !blockDoesReturn {
-		return nil, MissingReturnError(node.Body)
+		return nil, NodeError(node.Body, MissingReturn, "missing return")
 	}
 	return &Function{
 		argumentTypes: argumentTypes,
@@ -131,11 +132,11 @@ func (st *SymbolTable) ApplyArgumentList(node ast.ArgumentList, args []ValueObje
 			for _, item := range argNode.Items {
 				mapValue, ok := args[idx].(*MapValue)
 				if !ok {
-					return InvalidDestructuredArgumentObjectError()
+					return NodeError(argNode, InvalidDestructuredArgument, "destructured argument must be a map value")
 				}
 				propValue := mapValue.Data[item.Key]
 				if propValue == nil {
-					return NoPropertyError(mapValue, item.Key)
+					return NodeError(argNode, UnknownProperty, "%s has no property %s", mapValue.Class().Name(), item.Key)
 				}
 				st.Local[item.Key] = propValue
 			}

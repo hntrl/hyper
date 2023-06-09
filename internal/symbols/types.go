@@ -3,11 +3,12 @@ package symbols
 import (
 	"reflect"
 
+	. "github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/hntrl/hyper/internal/tokens"
 	"github.com/mitchellh/hashstructure"
 )
 
-// TODO: make this interface constrinaed to one of `Object` `ValueObject` or `Class`
+// TODO: make this interface constrinaed to one of `Object` `ValueObject` `Callable` or `Class`
 type ScopeValue interface{}
 
 // @ 1.1.1 `Object` Type
@@ -33,37 +34,6 @@ type Callable interface {
 	Arguments() []Class
 	Returns() Class
 	Call(...ValueObject) (ValueObject, error)
-}
-
-func ConstructCallableArguments(callable Callable, args []ValueObject) ([]ValueObject, error) {
-	callableArgs := callable.Arguments()
-	constructedArgs := make([]ValueObject, len(callableArgs))
-	if len(args) != len(callableArgs) {
-		return nil, MismatchedArgumentLengthError(len(callableArgs), len(args))
-	}
-	for idx, arg := range args {
-		argClass := callableArgs[idx]
-		argValue, err := Construct(argClass, arg)
-		if err != nil {
-			return nil, err
-		}
-		constructedArgs[idx] = argValue
-	}
-	return constructedArgs, nil
-}
-func ValidateCallableArguments(callable Callable, args []Class) error {
-	callableArgs := callable.Arguments()
-	if len(args) != len(callableArgs) {
-		return MismatchedArgumentLengthError(len(callableArgs), len(args))
-	}
-	for idx, arg := range args {
-		argClass := callableArgs[idx]
-		err := ShouldConstruct(argClass, arg)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // @ 1.1.4 `Class` Type
@@ -174,7 +144,7 @@ func makeClassConstructorFn(forClass Class, callback interface{}) (classConstruc
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a)}
@@ -208,14 +178,14 @@ func ShouldConstruct(target, value Class) error {
 			if constructor := targetDescriptors.Constructors.Get(valueMapClass); constructor != nil {
 				for key := range valueMapClass.Properties {
 					if _, ok := targetProperties[key]; !ok {
-						return UnknownPropertyError(key)
+						return StandardError(UnknownProperty, "unknown property %s", key)
 					}
 				}
 				for key, targetProperty := range targetProperties {
 					valuePropertyClass := valueMapClass.Properties[key]
 					if valuePropertyClass == nil {
 						if _, ok := targetProperty.PropertyClass.(*NilableClass); !ok {
-							return MissingPropertyError(key)
+							return StandardError(MissingProperty, "missing property %s", key)
 						}
 					} else {
 						err := ShouldConstruct(targetProperty.PropertyClass, valuePropertyClass)
@@ -240,7 +210,7 @@ func ShouldConstruct(target, value Class) error {
 		}
 		return ShouldConstruct(target, MapClass{Properties: propertyClassMap})
 	}
-	return CannotConstructError(target, value)
+	return StandardError(CannotConstruct, "cannot construct %s from %s", target.Name(), value.Name())
 }
 func Construct(target Class, value ValueObject) (ValueObject, error) {
 	if classEquals(target, value.Class()) {
@@ -266,10 +236,10 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 			if constructor := targetDescriptors.Constructors.Get(valueMap.Class()); constructor != nil {
 				for key := range valueMap.Data {
 					if _, ok := targetProperties[key]; !ok {
-						return nil, UnknownPropertyError(key)
+						return nil, StandardError(UnknownProperty, "unknown property %s", key)
 					}
 				}
-				validationErrors := make(map[string]string)
+				validationErrors := make(map[string]error)
 				propertyClasses := make(map[string]Class)
 				data := make(map[string]ValueObject)
 				for key, targetProperty := range targetDescriptors.Properties {
@@ -279,7 +249,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 						if targetNilable, ok := targetProperty.PropertyClass.(NilableClass); ok {
 							data[key] = &NilableObject{ObjectClass: targetNilable, Object: nil}
 						} else {
-							validationErrors[key] = MissingPropertyError(key).Error()
+							validationErrors[key] = StandardError(MissingProperty, "missing property %s", key)
 						}
 					} else {
 						constructedValue, err := Construct(targetProperty.PropertyClass, value)
@@ -323,7 +293,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 			Data:        data,
 		})
 	}
-	return nil, CannotConstructError(target, value.Class())
+	return nil, StandardError(CannotConstruct, "cannot construct %s from %s", target.Name(), value.Class().Name())
 }
 
 // @ 1.1.4.2 `Operators` Class Descriptor
@@ -367,7 +337,7 @@ func makeClassOperatorFn(operandClass Class, callback interface{}) (classOperato
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a, b ValueObject) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
@@ -381,26 +351,30 @@ func makeClassOperatorFn(operandClass Class, callback interface{}) (classOperato
 func ShouldOperate(token tokens.Token, target, value Class) error {
 	targetDescriptors := target.Descriptors()
 	if !token.IsOperator() {
-		return InvalidOperatorError(token)
+		return StandardError(InvalidOperator, "invalid binary opreator %s", token)
 	}
 	if targetDescriptors.Operators != nil {
 		if operator := targetDescriptors.Operators.Get(value, token); operator != nil {
 			return nil
 		}
 	}
-	return UndefinedOperatorError(token, target, value)
+	return StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Name(), value.Name())
 }
 func Operate(token tokens.Token, target, value ValueObject) (ValueObject, error) {
 	targetDescriptors := target.Class().Descriptors()
 	if !token.IsOperator() {
-		return nil, InvalidOperatorError(token)
+		return nil, StandardError(InvalidOperator, "invalid binary opreator %s", token)
 	}
 	if targetDescriptors.Operators != nil {
 		if operator := targetDescriptors.Operators.Get(value.Class(), token); operator != nil {
-			return operator.handler(target, value)
+			computedValue, err := operator.handler(target, value)
+			if err != nil {
+				return nil, err
+			}
+			return Construct(target.Class(), computedValue)
 		}
 	}
-	return nil, UndefinedOperatorError(token, target.Class(), value.Class())
+	return nil, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Name(), value.Class().Name())
 }
 
 // @ 1.1.4.3 `Comparators` Class Descriptor
@@ -445,7 +419,7 @@ func makeClassComparatorFn(operandClass Class, callback interface{}) (classCompa
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a, b ValueObject) (bool, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
@@ -459,26 +433,26 @@ func makeClassComparatorFn(operandClass Class, callback interface{}) (classCompa
 func ShouldCompare(token tokens.Token, target, value Class) error {
 	targetDescriptors := target.Descriptors()
 	if !token.IsComparableOperator() {
-		return InvalidCompareOperatorError(token)
+		return StandardError(InvalidOperator, "invalid compare operator %s", token)
 	}
 	if targetDescriptors.Comparators != nil {
 		if comparator := targetDescriptors.Comparators.Get(value, token); comparator != nil {
 			return nil
 		}
 	}
-	return UndefinedOperatorError(token, target, value)
+	return StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Name(), value.Name())
 }
 func Compare(token tokens.Token, target, value ValueObject) (bool, error) {
 	targetDescriptors := target.Class().Descriptors()
 	if !token.IsComparableOperator() {
-		return false, InvalidCompareOperatorError(token)
+		return false, StandardError(InvalidOperator, "invalid compare operator %s", token)
 	}
 	if targetDescriptors.Comparators != nil {
 		if comparator := targetDescriptors.Comparators.Get(value.Class(), token); comparator != nil {
 			return comparator.handler(target, value)
 		}
 	}
-	return false, UndefinedOperatorError(token, target.Class(), value.Class())
+	return false, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Name(), value.Class().Name())
 }
 
 // @ 1.1.4.4 `Properties` Class Descriptor
@@ -526,7 +500,7 @@ func makeClassGetterMethod(propertyClass Class, callback interface{}) (ClassGett
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a)}
@@ -543,7 +517,7 @@ func makeClassSetterMethod(propertyClass Class, callback interface{}) (ClassSett
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a, b ValueObject) error {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
@@ -624,7 +598,7 @@ func makeEnumerableGetLengthMethod(callback interface{}) (EnumerableGetLengthMet
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject) (int, error) {
 		args := []reflect.Value{reflect.ValueOf(a)}
@@ -641,7 +615,7 @@ func makeEnumerableGetIndexMethod(callback interface{}) (EnumerableGetIndexMetho
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject, b int) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
@@ -658,7 +632,7 @@ func makeEnumerableSetIndexMethod(callback interface{}) (EnumerableSetIndexMetho
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject, b int, c ValueObject) error {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c)}
@@ -674,7 +648,7 @@ func makeEnumerableGetRangeMethod(callback interface{}) (EnumerableGetRangeMetho
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject, b int, c int) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c)}
@@ -691,7 +665,7 @@ func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMetho
 	}
 	cb := newCallback(callback)
 	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, ExpectedCallbackSignatureError(expectedSignature, cb.Signature)
+		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
 	}
 	return func(a ValueObject, b int, c int, d ValueObject) error {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c), reflect.ValueOf(d)}
