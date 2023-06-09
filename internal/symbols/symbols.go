@@ -2,6 +2,7 @@ package symbols
 
 import (
 	"github.com/hntrl/hyper/internal/ast"
+	. "github.com/hntrl/hyper/internal/symbols/errors"
 )
 
 type SymbolTable struct {
@@ -56,24 +57,31 @@ func (st *SymbolTable) ResolveSelector(selector ast.Selector) (ScopeValue, error
 	}
 	resolveChainString := selector.Members[0]
 	if current == nil {
-		return nil, UnknownSelectorError(selector, selector.Members[0])
+		return nil, NodeError(selector, UnknownSelector, "unknown selector %s", resolveChainString)
 	}
-	for _, member := range selector.Members[1:] {
+	if len(selector.Members) > 1 {
 		currentObject, ok := current.(Object)
 		if !ok {
-			return nil, CannotAccessPropertyError(current, member)
+			return nil, NodeError(selector, CannotAccessProperty, "cannot access property %s on %T", selector.Members[1], current)
 		}
-		nextObj, err := currentObject.Get(member)
-		if err != nil {
-			return nil, err
+		for idx, member := range selector.Members[1 : len(selector.Members)-1] {
+			nextObj, err := currentObject.Get(member)
+			if err != nil {
+				return nil, err
+			}
+			if nextObj == nil {
+				return nil, NodeError(selector, UnknownProperty, "%s has no member %s", resolveChainString, member)
+			}
+			currentObject, ok = nextObj.(Object)
+			if !ok {
+				return nil, NodeError(selector, CannotAccessProperty, "cannot access property %s on %T", selector.Members[idx+1], nextObj)
+			}
+			resolveChainString += "." + member
 		}
-		if nextObj == nil {
-			return nil, NoSelectorMemberError(selector, resolveChainString, member)
-		}
-		current = nextObj
-		resolveChainString += "." + member
+		return currentObject.Get(selector.Members[len(selector.Members)-1])
+	} else {
+		return current, nil
 	}
-	return current, nil
 }
 
 func (st *SymbolTable) ResolveLiteral(node ast.Literal) (ValueObject, error) {
@@ -89,7 +97,7 @@ func (st *SymbolTable) ResolveLiteral(node ast.Literal) (ValueObject, error) {
 	case nil:
 		return NilValue{}, nil
 	default:
-		return nil, UnknownLiteralTypeError(node)
+		return nil, NodeError(node, InvalidSyntaxTree, "unknown literal type %T", node.Value)
 	}
 }
 
@@ -111,7 +119,7 @@ func (st *SymbolTable) ResolvePropertyList(node ast.PropertyList) (*MapValue, er
 			}
 			properties := propertyValue.Class().Descriptors().Properties
 			if properties == nil {
-				return nil, NotSpreadableError(propNode)
+				return nil, NodeError(propNode, InvalidSpreadTarget, "cannot spread value without properties")
 			}
 			for key, attributes := range properties {
 				propertyValue, err := attributes.Getter(propertyValue)
@@ -142,7 +150,7 @@ func (st *SymbolTable) EvaluatePropertyList(node ast.PropertyList) (*MapClass, e
 			}
 			properties := propertyClass.Descriptors().Properties
 			if properties == nil {
-				return nil, NotSpreadableError(propNode)
+				return nil, NodeError(propNode, InvalidSpreadTarget, "cannot spread value without properties")
 			}
 			for key, attributes := range properties {
 				class.Properties[key] = attributes.PropertyClass

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	. "github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
@@ -59,7 +60,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 				handler: func(a ValueObject, b ValueObject) (ValueObject, error) {
 					nilable := a.(*NilableObject)
 					if nilable.Object == nil {
-						return nil, CannotOperateNilValueError()
+						return nil, StandardError(CannotOperateNilValue, "cannot operate on nil value")
 					}
 					computedVal, err := operator.handler(nilable.Object, b)
 					if err != nil {
@@ -78,7 +79,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 				handler: func(a ValueObject, b ValueObject) (bool, error) {
 					nilable := a.(*NilableObject)
 					if nilable.Object == nil {
-						return false, CannotOperateNilValueError()
+						return false, StandardError(CannotOperateNilValue, "cannot operate on nil value")
 					}
 					return comparator.handler(nilable.Object, b)
 				},
@@ -92,7 +93,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 			nilableClass.descriptors.Enumerable.GetLength = func(a ValueObject) (int, error) {
 				nilable := a.(*NilableObject)
 				if nilable.Object == nil {
-					return -1, CannotGetNilEnumerableLengthError()
+					return -1, StandardError(CannotEnumerateNilValue, "cannot get length of nil")
 				}
 				return rules.GetLength(nilable.Object)
 			}
@@ -101,7 +102,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 			nilableClass.descriptors.Enumerable.GetIndex = func(a ValueObject, idx int) (ValueObject, error) {
 				nilable := a.(*NilableObject)
 				if nilable.Object == nil {
-					return nil, CannotGetNilEnumerableLengthError()
+					return nil, StandardError(CannotEnumerateNilValue, "cannot get index of nil")
 				}
 				return rules.GetIndex(nilable.Object, idx)
 			}
@@ -110,7 +111,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 			nilableClass.descriptors.Enumerable.SetIndex = func(a ValueObject, idx int, b ValueObject) error {
 				nilable := a.(*NilableObject)
 				if nilable.Object == nil {
-					return CannotSetNilEnumerableIndexError()
+					return StandardError(CannotEnumerateNilValue, "cannot set length of nil")
 				}
 				return rules.SetIndex(a, idx, b)
 			}
@@ -119,7 +120,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 			nilableClass.descriptors.Enumerable.GetRange = func(a ValueObject, start int, end int) (ValueObject, error) {
 				nilable := a.(*NilableObject)
 				if nilable.Object == nil {
-					return nil, CannotGetNilEnumerableRangeError()
+					return nil, StandardError(CannotEnumerateNilValue, "cannot get range of nil")
 				}
 				return rules.GetRange(nilable.Object, start, end)
 			}
@@ -128,7 +129,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 			nilableClass.descriptors.Enumerable.SetRange = func(a ValueObject, start int, end int, b ValueObject) error {
 				nilable := a.(*NilableObject)
 				if nilable.Object == nil {
-					return CannotSetNilEnumerableRangeError()
+					return StandardError(CannotEnumerateNilValue, "cannot set range of nil")
 				}
 				return rules.SetRange(nilable.Object, start, end, b)
 			}
@@ -183,23 +184,23 @@ func NewArrayClass(itemClass Class) ArrayClass {
 		Enumerable: NewClassEnumerationRules(ClassEnumerationOptions{
 			GetIndex: func(arr *ArrayValue, index int) (ValueObject, error) {
 				if index > len(arr.Items) || index < 0 {
-					return nil, IndexOutOfRangeError()
+					return nil, StandardError(IndexOutOfRange, "index out of range")
 				}
 				return arr.Items[index], nil
 			},
 			SetIndex: func(arr *ArrayValue, index int, item ValueObject) error {
 				if index > len(arr.Items) || index < 0 {
-					return IndexOutOfRangeError()
+					return StandardError(IndexOutOfRange, "index out of range")
 				}
 				arr.Items[index] = item
 				return nil
 			},
 			GetRange: func(arr *ArrayValue, start int, end int) (*ArrayValue, error) {
 				if start > len(arr.Items) || start < 0 {
-					return nil, StartIndexOutOfRangeError()
+					return nil, StandardError(IndexOutOfRange, "start index out of range")
 				}
 				if end > len(arr.Items) || end < 0 {
-					return nil, EndIndexOutOfRangeError()
+					return nil, StandardError(IndexOutOfRange, "end index out of range")
 				}
 				shouldReverseOrder := start > end
 				if shouldReverseOrder {
@@ -224,13 +225,13 @@ func NewArrayClass(itemClass Class) ArrayClass {
 			},
 			SetRange: func(arr *ArrayValue, start int, end int, insertArr ArrayValue) error {
 				if start > len(arr.Items) || start < 0 {
-					return StartIndexOutOfRangeError()
+					return StandardError(IndexOutOfRange, "start index out of range")
 				}
 				if end > len(arr.Items) || end < 0 {
-					return EndIndexOutOfRangeError()
+					return StandardError(IndexOutOfRange, "end index out of range")
 				}
 				if start > end {
-					return InvalidIndicesError()
+					return StandardError(InvalidRangeIndices, "start index cannot be greater than end index")
 				}
 				tailItems := arr.Items[end:len(arr.Items)]
 				arr.Items = append(arr.Items[0:start], insertArr.Items...)
