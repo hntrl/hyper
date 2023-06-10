@@ -105,4 +105,6 @@ const (
 	CannotOperateNilValue
 
 	CannotEnumerateNilValue
+
+	CannotUnmarshal
 )
