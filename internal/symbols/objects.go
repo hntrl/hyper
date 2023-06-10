@@ -334,7 +334,7 @@ func (MapClass) Name() string {
 func (mc MapClass) Descriptors() *ClassDescriptors {
 	propertyMap := ClassPropertyMap{}
 	for key, val := range mc.Properties {
-		propertyMap[key] = PropertyAttributes(PropertyAttributesOptions{
+		propertyMap[key] = PropertyAttributes(PropertyOptions{
 			Class: val,
 			Getter: func(obj *MapValue) (ValueObject, error) {
 				return obj.Get(key), nil
@@ -393,13 +393,13 @@ var (
 	Error            = ErrorClass{}
 	ErrorDescriptors = &ClassDescriptors{
 		Properties: ClassPropertyMap{
-			"name": PropertyAttributes(PropertyAttributesOptions{
+			"name": PropertyAttributes(PropertyOptions{
 				Class: String,
 				Getter: func(a ErrorValue) (StringValue, error) {
 					return StringValue(a.Name), nil
 				},
 			}),
-			"message": PropertyAttributes(PropertyAttributesOptions{
+			"message": PropertyAttributes(PropertyOptions{
 				Class: String,
 				Getter: func(a ErrorValue) (StringValue, error) {
 					return StringValue(a.Message), nil

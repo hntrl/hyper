@@ -453,13 +453,13 @@ type ClassPropertyAttributes struct {
 	Setter        ClassSetterMethod
 }
 
-type PropertyAttributesOptions struct {
+type PropertyOptions struct {
 	Class  Class
 	Getter interface{}
 	Setter interface{}
 }
 
-func PropertyAttributes(opts PropertyAttributesOptions) ClassPropertyAttributes {
+func PropertyAttributes(opts PropertyOptions) ClassPropertyAttributes {
 	attributes := ClassPropertyAttributes{PropertyClass: opts.Class}
 	if opts.Getter != nil {
 		getterMethod, err := makeClassGetterMethod(opts.Class, opts.Getter)
