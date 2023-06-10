@@ -312,11 +312,10 @@ func (mc MapClass) Descriptors() *ClassDescriptors {
 		propertyMap[key] = PropertyAttributes(PropertyAttributesOptions{
 			Class: val,
 			Getter: func(obj *MapValue) (ValueObject, error) {
-				return obj.Data[key], nil
+				return obj.Get(key), nil
 			},
 			Setter: func(obj *MapValue, val ValueObject) error {
-				obj.ParentClass.Properties[key] = val.Class()
-				obj.Data[key] = val
+				obj.Set(key, val)
 				return nil
 			},
 		})
@@ -337,6 +336,13 @@ type MapValue struct {
 	Data        map[string]ValueObject
 }
 
+func NewMapValue() *MapValue {
+	return &MapValue{
+		ParentClass: NewMapClass(),
+		Data:        map[string]ValueObject{},
+	}
+}
+
 func (mv *MapValue) Class() Class {
 	return mv.ParentClass
 }
@@ -348,11 +354,12 @@ func (mv *MapValue) Value() interface{} {
 	return out
 }
 
-func NewMapValue() *MapValue {
-	return &MapValue{
-		ParentClass: NewMapClass(),
-		Data:        map[string]ValueObject{},
-	}
+func (mv *MapValue) Get(k string) ValueObject {
+	return mv.Data[k]
+}
+func (mv *MapValue) Set(k string, v ValueObject) {
+	mv.ParentClass.Properties[k] = v.Class()
+	mv.Data[k] = v
 }
 
 // @ 1.3.4 `Error` Object

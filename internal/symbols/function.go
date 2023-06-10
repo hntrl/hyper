@@ -134,7 +134,7 @@ func (st *SymbolTable) ApplyArgumentList(node ast.ArgumentList, args []ValueObje
 				if !ok {
 					return NodeError(argNode, InvalidDestructuredArgument, "destructured argument must be a map value")
 				}
-				propValue := mapValue.Data[item.Key]
+				propValue := mapValue.Get(item.Key)
 				if propValue == nil {
 					return NodeError(argNode, UnknownProperty, "%s has no property %s", mapValue.Class().Name(), item.Key)
 				}
