@@ -102,7 +102,7 @@ func (st *SymbolTable) ResolveLiteral(node ast.Literal) (ValueObject, error) {
 }
 
 func (st *SymbolTable) ResolvePropertyList(node ast.PropertyList) (*MapValue, error) {
-	value := NewMapValue()
+	mapValue := NewMapValue()
 	for _, prop := range node {
 		switch propNode := prop.(type) {
 		case ast.Property:
@@ -110,8 +110,7 @@ func (st *SymbolTable) ResolvePropertyList(node ast.PropertyList) (*MapValue, er
 			if err != nil {
 				return nil, err
 			}
-			value.ParentClass.Properties[propNode.Key] = propertyValue.Class()
-			value.Data[propNode.Key] = propertyValue
+			mapValue.Set(propNode.Key, propertyValue)
 		case ast.SpreadElement:
 			propertyValue, err := st.ResolveExpression(propNode.Init)
 			if err != nil {
@@ -126,12 +125,11 @@ func (st *SymbolTable) ResolvePropertyList(node ast.PropertyList) (*MapValue, er
 				if err != nil {
 					return nil, err
 				}
-				value.ParentClass.Properties[key] = attributes.PropertyClass
-				value.Data[key] = propertyValue
+				mapValue.Set(key, propertyValue)
 			}
 		}
 	}
-	return value, nil
+	return mapValue, nil
 }
 func (st *SymbolTable) EvaluatePropertyList(node ast.PropertyList) (*MapClass, error) {
 	class := NewMapClass()

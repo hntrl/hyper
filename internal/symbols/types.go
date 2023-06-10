@@ -240,14 +240,12 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 					}
 				}
 				validationErrors := make(map[string]error)
-				propertyClasses := make(map[string]Class)
-				data := make(map[string]ValueObject)
+				constructedMapValue := NewMapValue()
 				for key, targetProperty := range targetDescriptors.Properties {
-					propertyClasses[key] = targetProperty.PropertyClass
-					value := valueMap.Data[key]
+					value := valueMap.Get(key)
 					if value == nil {
 						if targetNilable, ok := targetProperty.PropertyClass.(NilableClass); ok {
-							data[key] = &NilableObject{ObjectClass: targetNilable, Object: nil}
+							constructedMapValue.Set(key, &NilableObject{ObjectClass: targetNilable, Object: nil})
 						} else {
 							validationErrors[key] = StandardError(MissingProperty, "missing property %s", key)
 						}
@@ -256,7 +254,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 						if err != nil {
 							return nil, err
 						}
-						data[key] = constructedValue
+						constructedMapValue.Set(key, constructedValue)
 					}
 				}
 				if len(validationErrors) > 0 {
@@ -265,12 +263,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 						Data: validationErrors,
 					}
 				}
-				return constructor.handler(&MapValue{
-					ParentClass: MapClass{
-						Properties: propertyClasses,
-					},
-					Data: data,
-				})
+				return constructor.handler(constructedMapValue)
 			}
 		}
 	}
@@ -278,20 +271,15 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 		return constructor.handler(value)
 	}
 	if properties := value.Class().Descriptors().Properties; properties != nil {
-		propertyClasses := make(map[string]Class)
-		data := make(map[string]ValueObject)
+		castedMapValue := NewMapValue()
 		for key, property := range properties {
-			propertyClasses[key] = property.PropertyClass
 			propertyValue, err := property.Getter(value)
 			if err != nil {
 				return nil, err
 			}
-			data[key] = propertyValue
+			castedMapValue.Set(key, propertyValue)
 		}
-		return Construct(target, &MapValue{
-			ParentClass: MapClass{Properties: propertyClasses},
-			Data:        data,
-		})
+		return Construct(target, castedMapValue)
 	}
 	return nil, StandardError(CannotConstruct, "cannot construct %s from %s", target.Name(), value.Class().Name())
 }
