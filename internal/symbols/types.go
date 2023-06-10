@@ -163,7 +163,7 @@ func ShouldConstruct(target, value Class) error {
 	if targetArrayClass, ok := target.(ArrayClass); ok {
 		// If both the target class and the value's class are an array, redo ShouldConstruct with their parent types
 		if valueArrayClass, ok := value.(ArrayClass); ok {
-			return ShouldConstruct(targetArrayClass.ItemClass, valueArrayClass.ItemClass)
+			return ShouldConstruct(targetArrayClass.itemClass, valueArrayClass.itemClass)
 		}
 	}
 	if valueMapClass, ok := value.(MapClass); ok {
@@ -218,14 +218,14 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 	}
 	if targetArrayClass, ok := target.(ArrayClass); ok {
 		if valueArray, ok := value.(*ArrayValue); ok {
-			itemClass := targetArrayClass.ItemClass
-			newValueArray := NewArray(itemClass, len(valueArray.Items))
-			for idx, val := range valueArray.Items {
+			itemClass := targetArrayClass.itemClass
+			newValueArray := NewArray(itemClass, len(valueArray.items))
+			for idx, val := range valueArray.items {
 				constructedVal, err := Construct(itemClass, val)
 				if err != nil {
 					return nil, err
 				}
-				newValueArray.Items[idx] = constructedVal
+				newValueArray.items[idx] = constructedVal
 			}
 			return newValueArray, nil
 		}
@@ -234,7 +234,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 		targetDescriptors := target.Descriptors()
 		if targetProperties := targetDescriptors.Properties; targetProperties != nil {
 			if constructor := targetDescriptors.Constructors.Get(valueMap.Class()); constructor != nil {
-				for key := range valueMap.Data {
+				for key := range valueMap.data {
 					if _, ok := targetProperties[key]; !ok {
 						return nil, StandardError(UnknownProperty, "unknown property %s", key)
 					}
@@ -245,7 +245,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 					value := valueMap.Get(key)
 					if value == nil {
 						if targetNilable, ok := targetProperty.PropertyClass.(NilableClass); ok {
-							constructedMapValue.Set(key, &NilableObject{ObjectClass: targetNilable, Object: nil})
+							constructedMapValue.Set(key, NewNilableValue(targetNilable, nil))
 						} else {
 							validationErrors[key] = StandardError(MissingProperty, "missing property %s", key)
 						}
