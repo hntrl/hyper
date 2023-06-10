@@ -8,31 +8,46 @@ import (
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
+// @ ? `Any` class
+
+var (
+	Any = AnyClass{}
+)
+
+type AnyClass struct{}
+
+func (AnyClass) Name() string {
+	return "any"
+}
+func (AnyClass) Descriptors() *ClassDescriptors {
+	return nil
+}
+
 // @ 1.3.1 `Nilable` Object
 
 type NilableClass struct {
-	ParentClass Class
+	parentClass Class
 	descriptors *ClassDescriptors `hash:"ignore"`
 }
 
 func NewNilableClass(parentClass Class) NilableClass {
 	parentDescriptors := parentClass.Descriptors()
-	nilableClass := NilableClass{ParentClass: parentClass}
+	nilableClass := NilableClass{parentClass: parentClass}
 	nilableClass.descriptors = &ClassDescriptors{
 		Constructors: ClassConstructorSet{
-			Constructor(Nil, func() (*NilableObject, error) {
-				return &NilableObject{
-					ObjectClass: nilableClass,
-					Object:      nil,
+			Constructor(Nil, func() (*NilableValue, error) {
+				return &NilableValue{
+					nilableClass: nilableClass,
+					setValue:     nil,
 				}, nil
 			}),
 		},
 		Comparators: ClassComparatorSet{
-			Comparator(Nil, tokens.EQUALS, func(a *NilableObject) (bool, error) {
-				return a.Object == nil, nil
+			Comparator(Nil, tokens.EQUALS, func(a *NilableValue) (bool, error) {
+				return a.setValue == nil, nil
 			}),
-			Comparator(Nil, tokens.NOT_EQUALS, func(a *NilableObject) (bool, error) {
-				return a.Object != nil, nil
+			Comparator(Nil, tokens.NOT_EQUALS, func(a *NilableValue) (bool, error) {
+				return a.setValue != nil, nil
 			}),
 		},
 		Properties: parentDescriptors.Properties,
@@ -46,7 +61,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 					if err != nil {
 						return nil, err
 					}
-					return &NilableObject{nilableClass, constructedVal}, nil
+					return &NilableValue{nilableClass, constructedVal}, nil
 				},
 			}
 		}
@@ -58,15 +73,15 @@ func NewNilableClass(parentClass Class) NilableClass {
 				operandClass: operator.operandClass,
 				token:        operator.token,
 				handler: func(a ValueObject, b ValueObject) (ValueObject, error) {
-					nilable := a.(*NilableObject)
-					if nilable.Object == nil {
+					nilable := a.(*NilableValue)
+					if nilable.setValue == nil {
 						return nil, StandardError(CannotOperateNilValue, "cannot operate on nil value")
 					}
-					computedVal, err := operator.handler(nilable.Object, b)
+					computedVal, err := operator.handler(nilable.setValue, b)
 					if err != nil {
 						return nil, err
 					}
-					return &NilableObject{nilableClass, computedVal}, nil
+					return &NilableValue{nilableClass, computedVal}, nil
 				},
 			}
 		}
@@ -77,11 +92,11 @@ func NewNilableClass(parentClass Class) NilableClass {
 				operandClass: comparator.operandClass,
 				token:        comparator.token,
 				handler: func(a ValueObject, b ValueObject) (bool, error) {
-					nilable := a.(*NilableObject)
-					if nilable.Object == nil {
+					nilable := a.(*NilableValue)
+					if nilable.setValue == nil {
 						return false, StandardError(CannotOperateNilValue, "cannot operate on nil value")
 					}
-					return comparator.handler(nilable.Object, b)
+					return comparator.handler(nilable.setValue, b)
 				},
 			}
 		}
@@ -91,26 +106,26 @@ func NewNilableClass(parentClass Class) NilableClass {
 		rules := parentDescriptors.Enumerable
 		if rules.GetLength != nil {
 			nilableClass.descriptors.Enumerable.GetLength = func(a ValueObject) (int, error) {
-				nilable := a.(*NilableObject)
-				if nilable.Object == nil {
+				nilable := a.(*NilableValue)
+				if nilable.setValue == nil {
 					return -1, StandardError(CannotEnumerateNilValue, "cannot get length of nil")
 				}
-				return rules.GetLength(nilable.Object)
+				return rules.GetLength(nilable.setValue)
 			}
 		}
 		if rules.GetIndex != nil {
 			nilableClass.descriptors.Enumerable.GetIndex = func(a ValueObject, idx int) (ValueObject, error) {
-				nilable := a.(*NilableObject)
-				if nilable.Object == nil {
+				nilable := a.(*NilableValue)
+				if nilable.setValue == nil {
 					return nil, StandardError(CannotEnumerateNilValue, "cannot get index of nil")
 				}
-				return rules.GetIndex(nilable.Object, idx)
+				return rules.GetIndex(nilable.setValue, idx)
 			}
 		}
 		if rules.SetIndex != nil {
 			nilableClass.descriptors.Enumerable.SetIndex = func(a ValueObject, idx int, b ValueObject) error {
-				nilable := a.(*NilableObject)
-				if nilable.Object == nil {
+				nilable := a.(*NilableValue)
+				if nilable.setValue == nil {
 					return StandardError(CannotEnumerateNilValue, "cannot set length of nil")
 				}
 				return rules.SetIndex(a, idx, b)
@@ -118,20 +133,20 @@ func NewNilableClass(parentClass Class) NilableClass {
 		}
 		if rules.GetRange != nil {
 			nilableClass.descriptors.Enumerable.GetRange = func(a ValueObject, start int, end int) (ValueObject, error) {
-				nilable := a.(*NilableObject)
-				if nilable.Object == nil {
+				nilable := a.(*NilableValue)
+				if nilable.setValue == nil {
 					return nil, StandardError(CannotEnumerateNilValue, "cannot get range of nil")
 				}
-				return rules.GetRange(nilable.Object, start, end)
+				return rules.GetRange(nilable.setValue, start, end)
 			}
 		}
 		if rules.SetRange != nil {
 			nilableClass.descriptors.Enumerable.SetRange = func(a ValueObject, start int, end int, b ValueObject) error {
-				nilable := a.(*NilableObject)
-				if nilable.Object == nil {
+				nilable := a.(*NilableValue)
+				if nilable.setValue == nil {
 					return StandardError(CannotEnumerateNilValue, "cannot set range of nil")
 				}
-				return rules.SetRange(nilable.Object, start, end, b)
+				return rules.SetRange(nilable.setValue, start, end, b)
 			}
 		}
 	}
@@ -139,113 +154,123 @@ func NewNilableClass(parentClass Class) NilableClass {
 }
 
 func (nc NilableClass) Name() string {
-	return fmt.Sprintf("%s?", nc.ParentClass.Name())
+	return fmt.Sprintf("%s?", nc.parentClass.Name())
 }
 
 func (nc NilableClass) Descriptors() *ClassDescriptors {
 	return nc.descriptors
 }
 
-type NilableObject struct {
-	ObjectClass NilableClass
-	Object      ValueObject
+type NilableValue struct {
+	nilableClass NilableClass
+	setValue     ValueObject
 }
 
-func (no *NilableObject) Class() Class {
-	return no.ObjectClass
+func NewNilableValue(parentClass Class, value ValueObject) *NilableValue {
+	return &NilableValue{
+		nilableClass: NewNilableClass(parentClass),
+		setValue:     value,
+	}
 }
-func (no *NilableObject) Value() interface{} {
-	if no.Object == nil {
+
+func (no *NilableValue) Class() Class {
+	return no.nilableClass
+}
+func (no *NilableValue) Value() interface{} {
+	if no.setValue == nil {
 		return nil
 	}
-	return no.Object.Value()
+	return no.setValue.Value()
+}
+func (no *NilableValue) ValueObject() ValueObject {
+	return no.setValue
 }
 
 // @ 1.3.2 `Array` Object
 
 type ArrayClass struct {
-	ItemClass   Class
+	itemClass   Class
 	descriptors *ClassDescriptors `hash:"ignore"`
 }
 
 // TODO: "cache" the creation of this array class to reduce reflection calls
 func NewArrayClass(itemClass Class) ArrayClass {
 	arrayClass := ArrayClass{
-		ItemClass: itemClass,
+		itemClass: itemClass,
 	}
 	arrayClass.descriptors = &ClassDescriptors{
 		Constructors: ClassConstructorSet{
 			Constructor(arrayClass, func(arr ArrayValue) (ArrayValue, error) {
-				newArray := ArrayValue{ParentClass: arr.ParentClass, Items: make([]ValueObject, len(arr.Items))}
-				copy(arr.Items, newArray.Items)
+				newArray := ArrayValue{parentClass: arr.parentClass, items: make([]ValueObject, len(arr.items))}
+				copy(arr.items, newArray.items)
 				return newArray, nil
 			}),
 		},
 		Enumerable: NewClassEnumerationRules(ClassEnumerationOptions{
 			GetIndex: func(arr *ArrayValue, index int) (ValueObject, error) {
-				if index > len(arr.Items) || index < 0 {
+				if index > len(arr.items) || index < 0 {
 					return nil, StandardError(IndexOutOfRange, "index out of range")
 				}
-				return arr.Items[index], nil
+				return arr.items[index], nil
 			},
 			SetIndex: func(arr *ArrayValue, index int, item ValueObject) error {
-				if index > len(arr.Items) || index < 0 {
+				if index > len(arr.items) || index < 0 {
 					return StandardError(IndexOutOfRange, "index out of range")
 				}
-				arr.Items[index] = item
+				arr.items[index] = item
 				return nil
 			},
 			GetRange: func(arr *ArrayValue, start int, end int) (*ArrayValue, error) {
-				if start > len(arr.Items) || start < 0 {
+				if start > len(arr.items) || start < 0 {
 					return nil, StandardError(IndexOutOfRange, "start index out of range")
 				}
-				if end > len(arr.Items) || end < 0 {
+				if end > len(arr.items) || end < 0 {
 					return nil, StandardError(IndexOutOfRange, "end index out of range")
 				}
 				shouldReverseOrder := start > end
 				if shouldReverseOrder {
 					start := int(math.Min(float64(start), float64(end)))
 					end := int(math.Max(float64(start), float64(end)))
-					s := make([]ValueObject, len(arr.Items))
+					s := make([]ValueObject, len(arr.items))
 					// thank you s/o :) https://stackoverflow.com/a/19239850
-					copy(s, arr.Items)
+					copy(s, arr.items)
 					for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 						s[i], s[j] = s[j], s[i]
 					}
 					return &ArrayValue{
-						ParentClass: arr.ParentClass,
-						Items:       s[start:end],
+						parentClass: arr.parentClass,
+						items:       s[start:end],
 					}, nil
 				} else {
 					return &ArrayValue{
-						ParentClass: arr.ParentClass,
-						Items:       arr.Items[start:end],
+						parentClass: arr.parentClass,
+						items:       arr.items[start:end],
 					}, nil
 				}
 			},
 			SetRange: func(arr *ArrayValue, start int, end int, insertArr ArrayValue) error {
-				if start > len(arr.Items) || start < 0 {
+				if start > len(arr.items) || start < 0 {
 					return StandardError(IndexOutOfRange, "start index out of range")
 				}
-				if end > len(arr.Items) || end < 0 {
+				if end > len(arr.items) || end < 0 {
 					return StandardError(IndexOutOfRange, "end index out of range")
 				}
 				if start > end {
 					return StandardError(InvalidRangeIndices, "start index cannot be greater than end index")
 				}
-				tailItems := arr.Items[end:len(arr.Items)]
-				arr.Items = append(arr.Items[0:start], insertArr.Items...)
-				arr.Items = append(arr.Items, tailItems...)
+				tailItems := arr.items[end:len(arr.items)]
+				arr.items = append(arr.items[0:start], insertArr.items...)
+				arr.items = append(arr.items, tailItems...)
 				return nil
 			},
 		}),
 		Prototype: ClassPrototypeMap{
 			"append": NewClassMethod(ClassMethodOptions{
 				Class:     arrayClass,
-				Arguments: []Class{arrayClass.ItemClass},
+				Arguments: []Class{arrayClass.itemClass},
 				Returns:   nil,
 				Handler: func(arr *ArrayValue, item ValueObject) error {
-					arr.Items = append(arr.Items, item)
+					arr.items = append(arr.items, item)
 					return nil
 				},
 			}),
@@ -254,7 +279,7 @@ func NewArrayClass(itemClass Class) ArrayClass {
 				Arguments: []Class{},
 				Returns:   Integer,
 				Handler: func(arr *ArrayValue) (IntegerValue, error) {
-					return IntegerValue(len(arr.Items)), nil
+					return IntegerValue(len(arr.items)), nil
 				},
 			}),
 		},
@@ -263,7 +288,7 @@ func NewArrayClass(itemClass Class) ArrayClass {
 }
 
 func (ac ArrayClass) Name() string {
-	return fmt.Sprintf("[]%s", ac.ItemClass.Name())
+	return fmt.Sprintf("[]%s", ac.itemClass.Name())
 }
 
 func (ac ArrayClass) Descriptors() *ClassDescriptors {
@@ -271,25 +296,25 @@ func (ac ArrayClass) Descriptors() *ClassDescriptors {
 }
 
 type ArrayValue struct {
-	ParentClass ArrayClass
-	Items       []ValueObject `hash:"ignore"`
+	parentClass ArrayClass
+	items       []ValueObject `hash:"ignore"`
 }
 
 func NewArray(itemClass Class, len int) *ArrayValue {
 	arrayClass := NewArrayClass(itemClass)
 	return &ArrayValue{
-		ParentClass: arrayClass,
-		Items:       make([]ValueObject, len),
+		parentClass: arrayClass,
+		items:       make([]ValueObject, len),
 	}
 }
 
 func (av *ArrayValue) Class() Class {
-	return av.ParentClass
+	return av.parentClass
 }
 
 func (av *ArrayValue) Value() interface{} {
-	out := make([]interface{}, len(av.Items))
-	for i, item := range av.Items {
+	out := make([]interface{}, len(av.items))
+	for i, item := range av.items {
 		out[i] = item.Value()
 	}
 	return out
@@ -332,34 +357,34 @@ func NewMapClass() MapClass {
 }
 
 type MapValue struct {
-	ParentClass MapClass
-	Data        map[string]ValueObject
+	parentClass MapClass
+	data        map[string]ValueObject
 }
 
 func NewMapValue() *MapValue {
 	return &MapValue{
-		ParentClass: NewMapClass(),
-		Data:        map[string]ValueObject{},
+		parentClass: NewMapClass(),
+		data:        map[string]ValueObject{},
 	}
 }
 
 func (mv *MapValue) Class() Class {
-	return mv.ParentClass
+	return mv.parentClass
 }
 func (mv *MapValue) Value() interface{} {
 	out := make(map[string]interface{})
-	for key, value := range mv.Data {
+	for key, value := range mv.data {
 		out[key] = value.Value()
 	}
 	return out
 }
 
 func (mv *MapValue) Get(k string) ValueObject {
-	return mv.Data[k]
+	return mv.data[k]
 }
 func (mv *MapValue) Set(k string, v ValueObject) {
-	mv.ParentClass.Properties[k] = v.Class()
-	mv.Data[k] = v
+	mv.parentClass.Properties[k] = v.Class()
+	mv.data[k] = v
 }
 
 // @ 1.3.4 `Error` Object

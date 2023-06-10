@@ -89,7 +89,7 @@ func (st *SymbolTable) ResolveArrayExpression(node ast.ArrayExpression) (ValueOb
 		if err != nil {
 			return nil, err
 		}
-		array.Items[idx], err = Construct(array.ParentClass.ItemClass, element)
+		array.items[idx], err = Construct(array.parentClass.itemClass, element)
 		if err != nil {
 			return nil, WrappedNodeError(elementNode, err)
 		}
@@ -107,7 +107,7 @@ func (st *SymbolTable) EvaluateArrayExpression(node ast.ArrayExpression) (Class,
 		if err != nil {
 			return nil, err
 		}
-		err = ShouldConstruct(arrayClass.ItemClass, element)
+		err = ShouldConstruct(arrayClass.itemClass, element)
 		if err != nil {
 			return nil, WrappedNodeError(elementNode, err)
 		}

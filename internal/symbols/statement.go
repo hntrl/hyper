@@ -482,7 +482,7 @@ func resolveForStatementWithRangeCondition(st *SymbolTable, conditionBlock ast.R
 	}
 	scopeTable := st.StartLoop()
 loopBlock:
-	for idx, item := range arr.Items {
+	for idx, item := range arr.items {
 		scopeTable.Local[conditionBlock.Index] = IntegerValue(idx)
 		scopeTable.Local[conditionBlock.Value] = item
 		obj, err := st.ResolveBlock(block)
@@ -512,7 +512,7 @@ func evaluateForStatementWithRangeCondition(st *SymbolTable, conditionBlock ast.
 	}
 	scopeTable := st.StartLoop()
 	scopeTable.Local[conditionBlock.Index] = Integer
-	scopeTable.Local[conditionBlock.Value] = arrayClass.ItemClass
+	scopeTable.Local[conditionBlock.Value] = arrayClass.itemClass
 	return scopeTable.EvaluateBlock(block, shouldReturn)
 }
 
