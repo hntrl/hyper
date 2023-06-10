@@ -1,6 +1,8 @@
 package symbols
 
 import (
+	"encoding/json"
+	"fmt"
 	"reflect"
 
 	. "github.com/hntrl/hyper/internal/symbols/errors"
@@ -27,6 +29,74 @@ type ValueObject interface {
 }
 
 var emptyValueObjectType = reflect.TypeOf((*ValueObject)(nil))
+
+// Converts a byte array into a ValueObject
+func ValueFromBytes(bytes []byte) (ValueObject, error) {
+	var str string
+	isString := json.Unmarshal(bytes, &str) == nil
+	var obj interface{}
+	err := json.Unmarshal(bytes, &obj)
+	isJSON := err == nil
+
+	if isJSON {
+		return ValueFromInterface(obj)
+	} else if isString {
+		return StringValue(str), nil
+	} else {
+		return nil, fmt.Errorf("cannot unmarshal object: %s", err)
+	}
+}
+
+// Converts a standard interface into a ValueObject
+func ValueFromInterface(obj interface{}) (ValueObject, error) {
+	value := reflect.ValueOf(obj)
+	switch value.Kind() {
+	case reflect.String:
+		return StringValue(value.String()), nil
+	case reflect.Int:
+		return NumberValue(value.Int()), nil
+	case reflect.Float64:
+		return NumberValue(value.Float()), nil
+	case reflect.Slice:
+		var items []ValueObject
+		for i := 0; i < value.Len(); i++ {
+			item, err := ValueFromInterface(value.Index(i).Interface())
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		}
+		if len(items) == 0 {
+			return &ArrayValue{
+				parentClass: NewArrayClass(Map),
+				items:       make([]ValueObject, 0),
+			}, nil
+		} else {
+			return &ArrayValue{
+				parentClass: NewArrayClass(items[0].Class()),
+				items:       items,
+			}, nil
+		}
+	case reflect.Map:
+		mapValue := NewMapValue()
+		iter := value.MapRange()
+		for iter.Next() {
+			key := iter.Key().String()
+			value, err := ValueFromInterface(iter.Value().Interface())
+			if err != nil {
+				return nil, err
+			}
+			mapValue.Set(key, value)
+		}
+		return mapValue, nil
+	case reflect.Bool:
+		return BooleanValue(value.Bool()), nil
+	case reflect.Invalid:
+		return NilValue{}, nil
+	default:
+		return nil, StandardError(CannotUnmarshal, "cannot unmarshal intrinsic type %s", value.Kind())
+	}
+}
 
 // @ 1.1.3 `Callable` Type
 
