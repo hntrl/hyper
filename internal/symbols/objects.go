@@ -386,6 +386,9 @@ func (mv *MapValue) Set(k string, v ValueObject) {
 	mv.parentClass.Properties[k] = v.Class()
 	mv.data[k] = v
 }
+func (mv *MapValue) Map() map[string]ValueObject {
+	return mv.data
+}
 
 // @ 1.3.4 `Error` Object
 
