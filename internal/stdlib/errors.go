@@ -1,74 +1,75 @@
 package stdlib
 
 import (
-	"github.com/hntrl/hyper/internal/symbols"
+	sym "github.com/hntrl/hyper/internal/symbols"
 )
+
+var errorFunctions = map[string]sym.Callable{
+	"New": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.String,
+			sym.String,
+		},
+		Returns: sym.Error,
+		Handler: func(name sym.StringValue, message sym.StringValue) (sym.ErrorValue, error) {
+			return sym.ErrorValue{
+				Name:    string(name),
+				Message: string(message),
+			}, nil
+		},
+	}),
+	"BadRequest": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.String,
+		},
+		Returns: sym.Error,
+		Handler: func(message sym.StringValue) (sym.ErrorValue, error) {
+			return sym.ErrorValue{
+				Name:    "BadRequest",
+				Message: string(message),
+			}, nil
+		},
+	}),
+	"NotFound": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.String,
+		},
+		Returns: sym.Error,
+		Handler: func(message sym.StringValue) (sym.ErrorValue, error) {
+			return sym.ErrorValue{
+				Name:    "NotFound",
+				Message: string(message),
+			}, nil
+		},
+	}),
+	"Unauthorized": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.String,
+		},
+		Returns: sym.Error,
+		Handler: func(message sym.StringValue) (sym.ErrorValue, error) {
+			return sym.ErrorValue{
+				Name:    "Unauthorized",
+				Message: string(message),
+			}, nil
+		},
+	}),
+	"InternalError": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.String,
+		},
+		Returns: sym.Error,
+		Handler: func(message sym.StringValue) (sym.ErrorValue, error) {
+			return sym.ErrorValue{
+				Name:    "InternalError",
+				Message: string(message),
+			}, nil
+		},
+	}),
+}
 
 type ErrorsPackage struct{}
 
-func (ep ErrorsPackage) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
-		"New": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.String{},
-				symbols.String{},
-			},
-			Returns: symbols.Error{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				return symbols.Error{
-					Name:    string(args[0].(symbols.StringLiteral)),
-					Message: string(args[1].(symbols.StringLiteral)),
-				}, nil
-			},
-		}),
-		"BadRequest": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.String{},
-			},
-			Returns: symbols.Error{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				return symbols.Error{
-					Name:    "BadRequest",
-					Message: string(args[0].(symbols.StringLiteral)),
-				}, nil
-			},
-		}),
-		"NotFound": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.String{},
-			},
-			Returns: symbols.Error{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				return symbols.Error{
-					Name:    "NotFound",
-					Message: string(args[0].(symbols.StringLiteral)),
-				}, nil
-			},
-		}),
-		"Unauthorized": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.String{},
-			},
-			Returns: symbols.Error{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				return symbols.Error{
-					Name:    "Unauthorized",
-					Message: string(args[0].(symbols.StringLiteral)),
-				}, nil
-			},
-		}),
-		"InternalError": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.String{},
-			},
-			Returns: symbols.Error{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				return symbols.Error{
-					Name:    "InternalError",
-					Message: string(args[0].(symbols.StringLiteral)),
-				}, nil
-			},
-		}),
-	}
-	return methods[key], nil
+func (ep ErrorsPackage) Get(key string) (sym.ScopeValue, error) {
+	return errorFunctions[key], nil
 }

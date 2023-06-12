@@ -3,86 +3,152 @@ package stdlib
 import (
 	"math"
 
-	"github.com/hntrl/hyper/internal/symbols"
+	sym "github.com/hntrl/hyper/internal/symbols"
 )
+
+var mathFunctions = map[string]sym.Callable{
+	"Abs": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Abs(float64(x))), nil
+		},
+	}),
+	"Acos": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Acos(float64(x))), nil
+		},
+	}),
+	"Asin": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Asin(float64(x))), nil
+		},
+	}),
+	"Atan": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Atan(float64(x))), nil
+		},
+	}),
+	"Atan2": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(y sym.FloatValue, x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Atan2(float64(y), float64(x))), nil
+		},
+	}),
+	"Ceil": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Integer,
+		Handler: func(x sym.FloatValue) (sym.IntegerValue, error) {
+			return sym.IntegerValue(math.Ceil(float64(x))), nil
+		},
+	}),
+	"Cos": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Cos(float64(x))), nil
+		},
+	}),
+	"Floor": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Integer,
+		Handler: func(x sym.FloatValue) (sym.IntegerValue, error) {
+			return sym.IntegerValue(math.Floor(float64(x))), nil
+		},
+	}),
+	"Log": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Log(float64(x))), nil
+		},
+	}),
+	"Max": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x, y sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Max(float64(x), float64(y))), nil
+		},
+	}),
+	"Min": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+			sym.Float,
+		},
+		Returns: sym.Float,
+		Handler: func(x, y sym.FloatValue) (sym.FloatValue, error) {
+			return sym.FloatValue(math.Min(float64(x), float64(y))), nil
+		},
+	}),
+	"Round": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Integer,
+		Handler: func(x sym.FloatValue) (sym.IntegerValue, error) {
+			return sym.IntegerValue(math.Round(float64(x))), nil
+		},
+	}),
+	"Sin": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Integer,
+		Handler: func(x sym.FloatValue) (sym.IntegerValue, error) {
+			return sym.IntegerValue(math.Sin(float64(x))), nil
+		},
+	}),
+	"Sqrt": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Integer,
+		Handler: func(x sym.FloatValue) (sym.IntegerValue, error) {
+			return sym.IntegerValue(math.Sqrt(float64(x))), nil
+		},
+	}),
+	"Tan": sym.NewFunction(sym.FunctionOptions{
+		Arguments: []sym.Class{
+			sym.Float,
+		},
+		Returns: sym.Integer,
+		Handler: func(x sym.FloatValue) (sym.IntegerValue, error) {
+			return sym.IntegerValue(math.Tan(float64(x))), nil
+		},
+	}),
+}
 
 type MathPackage struct{}
 
-func (mp MathPackage) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
-		// "Abs":  AbsFunction{},
-		// "Acos": AcosFunction{},
-		// "Asin": AsinFunction{},
-		// "Atan": AtanFunction{},
-		// "Atan2": Atan2Function{},
-		"Ceil": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.Float{},
-			},
-			Returns: symbols.Integer{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				num := args[0].(symbols.FloatLiteral)
-				return symbols.IntegerLiteral(math.Ceil(float64(num))), nil
-			},
-		}),
-		// "Cos": CosFunction{},
-		"Floor": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.Float{},
-			},
-			Returns: symbols.Integer{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				num := args[0].(symbols.FloatLiteral)
-				return symbols.IntegerLiteral(math.Floor(float64(num))), nil
-			},
-		}),
-		"Log": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.Float{},
-			},
-			Returns: symbols.Float{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				num := args[0].(symbols.FloatLiteral)
-				return symbols.FloatLiteral(math.Log(float64(num))), nil
-			},
-		}),
-		"Max": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.Float{},
-				symbols.Float{},
-			},
-			Returns: symbols.Float{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				x := args[0].(symbols.FloatLiteral)
-				y := args[1].(symbols.FloatLiteral)
-				return symbols.FloatLiteral(math.Max(float64(x), float64(y))), nil
-			},
-		}),
-		"Min": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.Float{},
-				symbols.Float{},
-			},
-			Returns: symbols.Float{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				x := args[0].(symbols.FloatLiteral)
-				y := args[1].(symbols.FloatLiteral)
-				return symbols.FloatLiteral(math.Min(float64(x), float64(y))), nil
-			},
-		}),
-		"Round": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{
-				symbols.Float{},
-			},
-			Returns: symbols.Float{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				num := args[0].(symbols.FloatLiteral)
-				return symbols.IntegerLiteral(math.Round(float64(num))), nil
-			},
-		}),
-		// "Sin": SinFunction{},
-		// "Sqrt": SqrtFunction{},
-		// "Tan": TanFunction{},
-	}
-	return methods[key], nil
+func (mp MathPackage) Get(key string) (sym.ScopeValue, error) {
+	return mathFunctions[key], nil
 }

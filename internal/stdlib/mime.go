@@ -6,51 +6,46 @@ import (
 	"github.com/hntrl/hyper/internal/symbols"
 )
 
-type MimeTypesPackage struct{}
-
-func (mt MimeTypesPackage) Get(key string) (symbols.Object, error) {
-	switch key {
-	case "MimeType":
-		return MimeType{}, nil
+var (
+	MimeType            = MimeTypeClass{}
+	MimeTypeDescriptors = &symbols.ClassDescriptors{
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.String, func(strValue symbols.StringValue) (MimeTypeValue, error) {
+				str := string(strValue)
+				for _, v := range types {
+					if v == str {
+						return MimeTypeValue(v), nil
+					}
+				}
+				return "", fmt.Errorf("unknown mime type %s", str)
+			}),
+		},
 	}
-	return nil, nil
-}
+)
 
-type MimeType struct {
-	TypeString string `hash:"ignore"`
-}
+type MimeTypeClass struct{}
 
-func (mt MimeType) ClassName() string {
+func (MimeTypeClass) Name() string {
 	return "MimeType"
 }
-func (mt MimeType) Fields() map[string]symbols.Object {
-	return nil
-}
-func (mt MimeType) Constructors() symbols.ConstructorMap {
-	csMap := symbols.NewConstructorMap()
-	csMap.AddConstructor(symbols.String{}, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
-		str := string(obj.(symbols.StringLiteral))
-		for _, v := range types {
-			if v == str {
-				return MimeType{v}, nil
-			}
-		}
-		return nil, fmt.Errorf("unknown mime type %s", str)
-	})
-	return csMap
-}
-func (mt MimeType) Get(key string) (symbols.Object, error) {
-	return nil, nil
+func (MimeTypeClass) Descriptors() *symbols.ClassDescriptors {
+	return MimeTypeDescriptors
 }
 
-func (mt MimeType) Class() symbols.Class {
-	return mt
+type MimeTypeValue string
+
+func (MimeTypeValue) Class() symbols.Class {
+	return MimeType
 }
-func (mt MimeType) Value() interface{} {
-	return mt.TypeString
-}
-func (mt MimeType) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, mt)
+
+type MimeTypesPackage struct{}
+
+func (mt MimeTypesPackage) Get(key string) (symbols.ScopeValue, error) {
+	switch key {
+	case "MimeType":
+		return MimeType, nil
+	}
+	return nil, nil
 }
 
 var types = []string{

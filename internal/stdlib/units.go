@@ -6,56 +6,61 @@ import (
 
 type UnitsPackage struct{}
 
-func (up UnitsPackage) Get(key string) (symbols.Object, error) {
-	objects := map[string]symbols.Object{
-		"Dimension": Dimension{},
+func (up UnitsPackage) Get(key string) (symbols.ScopeValue, error) {
+	classes := map[string]symbols.Class{
+		"Dimension": Dimension,
 	}
-	return objects[key], nil
+	return classes[key], nil
 }
 
-type Dimension struct {
-	Width  symbols.FloatLiteral
-	Height symbols.FloatLiteral
-}
+var (
+	Dimension            = DimensionClass{}
+	DimensionDescriptors = &symbols.ClassDescriptors{
+		Properties: symbols.ClassPropertyMap{
+			"width": symbols.PropertyAttributes(symbols.PropertyOptions{
+				Class: symbols.Float,
+				Getter: func(val *DimensionValue) (symbols.FloatValue, error) {
+					return symbols.FloatValue(val.Width), nil
+				},
+				Setter: func(val *DimensionValue, newWidth symbols.FloatValue) error {
+					val.Width = float64(newWidth)
+					return nil
+				},
+			}),
+			"height": symbols.PropertyAttributes(symbols.PropertyOptions{
+				Class: symbols.Float,
+				Getter: func(val *DimensionValue) (symbols.FloatValue, error) {
+					return symbols.FloatValue(val.Height), nil
+				},
+				Setter: func(val *DimensionValue, newHeiht symbols.FloatValue) error {
+					val.Height = float64(newHeiht)
+					return nil
+				},
+			}),
+		},
+	}
+)
 
-func (dm Dimension) ClassName() string {
+type DimensionClass struct{}
+
+func (DimensionClass) Name() string {
 	return "Dimension"
 }
-func (dm Dimension) Fields() map[string]symbols.Class {
-	return map[string]symbols.Class{
-		"width":  symbols.Float{},
-		"height": symbols.Float{},
-	}
-}
-func (dm Dimension) Constructors() symbols.ConstructorMap {
-	csMap := symbols.NewConstructorMap()
-	csMap.AddGenericConstructor(dm, func(fields map[string]symbols.ValueObject) (symbols.ValueObject, error) {
-		return Dimension{
-			Width:  fields["width"].(symbols.FloatLiteral),
-			Height: fields["height"].(symbols.FloatLiteral),
-		}, nil
-	})
-	return csMap
-}
-func (dm Dimension) Get(key string) (symbols.Object, error) {
-	switch key {
-	case "width":
-		return dm.Width, nil
-	case "height":
-		return dm.Height, nil
-	}
-	return nil, nil
+func (DimensionClass) Descriptors() *symbols.ClassDescriptors {
+	return DimensionDescriptors
 }
 
-func (dm Dimension) Class() symbols.Class {
-	return dm
+type DimensionValue struct {
+	Width  float64
+	Height float64
 }
-func (dm Dimension) Value() interface{} {
+
+func (*DimensionValue) Class() symbols.Class {
+	return Dimension
+}
+func (dv *DimensionValue) Value() interface{} {
 	return map[string]float64{
-		"width":  float64(dm.Width),
-		"height": float64(dm.Height),
+		"width":  dv.Width,
+		"height": dv.Height,
 	}
-}
-func (dm Dimension) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, dm)
 }
