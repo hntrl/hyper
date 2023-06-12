@@ -13,13 +13,13 @@ import (
 // TODO: make this interface constrinaed to one of `Object` `ValueObject` `Callable` or `Class`
 type ScopeValue interface{}
 
-// @ 1.1.1 `Object` Type
+// @ 2.1.1 `Object` Type
 
 type Object interface {
 	Get(string) (ScopeValue, error)
 }
 
-// @ 1.1.2 `ValueObject` Type
+// @ 2.1.2 `ValueObject` Type
 
 type ValueObject interface {
 	// The serialized version of the value object
@@ -98,7 +98,7 @@ func ValueFromInterface(obj interface{}) (ValueObject, error) {
 	}
 }
 
-// @ 1.1.3 `Callable` Type
+// @ 2.1.3 `Callable` Type
 
 type Callable interface {
 	Arguments() []Class
@@ -106,7 +106,7 @@ type Callable interface {
 	Call(...ValueObject) (ValueObject, error)
 }
 
-// @ 1.1.4 `Class` Type
+// @ 2.1.4 `Class` Type
 
 type ClassHash uint64
 
@@ -175,7 +175,7 @@ func (cm ClassMethod) CallableForValue(val ValueObject) Callable {
 	}
 }
 
-// @ 1.1.4.1 `Constructors` Class Descriptor
+// @ 2.1.4.1 `Constructors` Class Descriptor
 
 type ClassConstructorSet []*ClassConstructor
 
@@ -354,7 +354,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 	return nil, StandardError(CannotConstruct, "cannot construct %s from %s", target.Name(), value.Class().Name())
 }
 
-// @ 1.1.4.2 `Operators` Class Descriptor
+// @ 2.1.4.2 `Operators` Class Descriptor
 
 type ClassOperatorSet []*ClassOperator
 
@@ -435,7 +435,7 @@ func Operate(token tokens.Token, target, value ValueObject) (ValueObject, error)
 	return nil, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Name(), value.Class().Name())
 }
 
-// @ 1.1.4.3 `Comparators` Class Descriptor
+// @ 2.1.4.3 `Comparators` Class Descriptor
 
 type ClassComparatorSet []*ClassComparator
 
@@ -513,7 +513,7 @@ func Compare(token tokens.Token, target, value ValueObject) (bool, error) {
 	return false, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Name(), value.Class().Name())
 }
 
-// @ 1.1.4.4 `Properties` Class Descriptor
+// @ 2.1.4.4 `Properties` Class Descriptor
 
 type ClassPropertyMap map[string]ClassPropertyAttributes
 
@@ -585,7 +585,7 @@ func makeClassSetterMethod(propertyClass Class, callback interface{}) (ClassSett
 	}, nil
 }
 
-// @ 1.1.4.5 `Enumerable` Class Descriptor
+// @ 2.1.4.5 `Enumerable` Class Descriptor
 
 type ClassEnumerationRules struct {
 	GetLength EnumerableGetLengthMethod
@@ -733,6 +733,6 @@ func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMetho
 	}, nil
 }
 
-// @ 1.1.4.6 `Prototype` Class Descriptor
+// @ 2.1.4.6 `Prototype` Class Descriptor
 
 type ClassPrototypeMap map[string]*ClassMethod
