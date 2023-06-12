@@ -8,22 +8,419 @@ import (
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
-// @ ? `Any` class
+// @ 2.2.1 `nil` Primitive
 
 var (
-	Any = AnyClass{}
+	Nil            = NilClass{}
+	NilDescriptors = &ClassDescriptors{}
 )
 
-type AnyClass struct{}
+type NilClass struct{}
 
-func (AnyClass) Name() string {
-	return "any"
+func (NilClass) Name() string {
+	return "<nil>"
 }
-func (AnyClass) Descriptors() *ClassDescriptors {
+
+func (NilClass) Descriptors() *ClassDescriptors {
+	return NilDescriptors
+}
+
+type NilValue struct{}
+
+func (NilValue) Value() interface{} {
 	return nil
 }
+func (NilValue) Class() Class {
+	return Nil
+}
 
-// @ 1.3.1 `Nilable` Object
+// @ 2.2.2 `Boolean` Primitive
+
+var (
+	Boolean            = BooleanClass{}
+	BooleanDescriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{},
+		Comparators: ClassComparatorSet{
+			Comparator(Boolean, tokens.AND, func(a, b BooleanValue) (bool, error) {
+				return bool(a) && bool(b), nil
+			}),
+			Comparator(Boolean, tokens.OR, func(a, b BooleanValue) (bool, error) {
+				return bool(a) || bool(b), nil
+			}),
+		},
+	}
+)
+
+type BooleanClass struct{}
+
+func (BooleanClass) Name() string {
+	return "Boolean"
+}
+
+func (BooleanClass) Descriptors() *ClassDescriptors {
+	return BooleanDescriptors
+}
+
+type BooleanValue bool
+
+func (v BooleanValue) Value() interface{} {
+	return bool(v)
+}
+func (BooleanValue) Class() Class {
+	return Boolean
+}
+
+// @ 2.2.3 `String Primitive`
+
+var (
+	String            = StringClass{}
+	StringDescriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{
+			Constructor(Number, func(val NumberValue) (StringValue, error) {
+				return "", nil
+			}),
+			Constructor(Double, func(val DoubleValue) (StringValue, error) {
+				return "", nil
+			}),
+			Constructor(Float, func(val FloatValue) (StringValue, error) {
+				return "", nil
+			}),
+			Constructor(Integer, func(val IntegerValue) (StringValue, error) {
+				return "", nil
+			}),
+			Constructor(Boolean, func(val BooleanValue) (StringValue, error) {
+				return "", nil
+			}),
+		},
+		Operators:   ClassOperatorSet{},
+		Comparators: ClassComparatorSet{},
+		Prototype:   ClassPrototypeMap{},
+	}
+)
+
+type StringClass struct{}
+
+func (StringClass) Name() string {
+	return "String"
+}
+
+func (StringClass) Descriptors() *ClassDescriptors {
+	return StringDescriptors
+}
+
+type StringValue string
+
+func (v StringValue) Value() interface{} {
+	return string(v)
+}
+func (StringValue) Class() Class {
+	return String
+}
+
+// @ 2.2.4 Numeric Primitives
+
+var NumericClasses = []Class{Number, Double, Integer, Float}
+
+func numericOperatorPredicate(numberConstructor *ClassConstructor, operandConstructor *ClassConstructor, cb func(float64, float64) float64) classOperatorFn {
+	return func(a, b ValueObject) (ValueObject, error) {
+		na, err := numberConstructor.handler(a)
+		if err != nil {
+			return nil, err
+		}
+		nb, err := numberConstructor.handler(b)
+		if err != nil {
+			return nil, err
+		}
+		result := cb(float64(na.(NumberValue)), float64(nb.(NumberValue)))
+		return operandConstructor.handler(NumberValue(result))
+	}
+}
+
+func numericComparatorPredicate(constructor *ClassConstructor, cb func(float64, float64) bool) classComparatorFn {
+	return func(a, b ValueObject) (bool, error) {
+		na, err := constructor.handler(a)
+		if err != nil {
+			return false, err
+		}
+		nb, err := constructor.handler(b)
+		if err != nil {
+			return false, err
+		}
+		return cb(float64(na.(NumberValue)), float64(nb.(NumberValue))), nil
+	}
+}
+
+var NumericOperators = ClassOperatorSet{}
+var NumericComparators = ClassComparatorSet{}
+
+func init() {
+	for _, operandClass := range NumericClasses {
+		numberConstructor := NumberDescriptors.Constructors.Get(operandClass)
+		operandConstructor := operandClass.Descriptors().Constructors.Get(Number)
+		NumericOperators = append(NumericOperators, ClassOperatorSet{
+			Operator(operandClass, tokens.ADD, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a + b
+			})),
+			Operator(operandClass, tokens.SUB, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a - b
+			})),
+			Operator(operandClass, tokens.MUL, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a * b
+			})),
+			Operator(operandClass, tokens.PWR, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return math.Pow(a, b)
+			})),
+			Operator(operandClass, tokens.QUO, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return a / b
+			})),
+			Operator(operandClass, tokens.REM, numericOperatorPredicate(numberConstructor, operandConstructor, func(a, b float64) float64 {
+				return math.Mod(a, b)
+			})),
+		}...)
+		NumericComparators = append(NumericComparators, ClassComparatorSet{
+			Comparator(operandClass, tokens.EQUALS, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a == b
+			})),
+			Comparator(operandClass, tokens.NOT_EQUALS, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a != b
+			})),
+			Comparator(operandClass, tokens.LESS, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a < b
+			})),
+			Comparator(operandClass, tokens.GREATER, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a > b
+			})),
+			Comparator(operandClass, tokens.LESS_EQUAL, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a <= b
+			})),
+			Comparator(operandClass, tokens.GREATER_EQUAL, numericComparatorPredicate(numberConstructor, func(a, b float64) bool {
+				return a >= b
+			})),
+		}...)
+	}
+}
+
+var (
+	Number            = NumberClass{}
+	NumberDescriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{
+			Constructor(Double, func(val DoubleValue) (NumberValue, error) {
+				return NumberValue(val), nil
+			}),
+			Constructor(Float, func(val FloatValue) (NumberValue, error) {
+				return NumberValue(val), nil
+			}),
+			Constructor(Integer, func(val IntegerValue) (NumberValue, error) {
+				// ? is this allowed
+				return NumberValue(val), nil
+			}),
+		},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
+	}
+)
+
+type NumberClass struct{}
+
+func (NumberClass) Name() string {
+	return "Number"
+}
+
+func (NumberClass) Descriptors() *ClassDescriptors {
+	return NumberDescriptors
+}
+
+type NumberValue float64
+
+func (v NumberValue) Value() interface{} {
+	return float64(v)
+}
+func (NumberValue) Class() Class {
+	return Number
+}
+
+var (
+	Double            = DoubleClass{}
+	DoubleDescriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{
+			Constructor(Number, func(val NumberValue) (DoubleValue, error) {
+				return DoubleValue(val), nil
+			}),
+			Constructor(Float, func(val FloatValue) (DoubleValue, error) {
+				return DoubleValue(val), nil
+			}),
+			Constructor(Integer, func(val IntegerValue) (DoubleValue, error) {
+				return DoubleValue(val), nil
+			}),
+		},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
+	}
+)
+
+type DoubleClass struct{}
+
+func (DoubleClass) Name() string {
+	return "Double"
+}
+func (DoubleClass) Descriptors() *ClassDescriptors {
+	return DoubleDescriptors
+}
+
+type DoubleValue float64
+
+func (v DoubleValue) Value() interface{} {
+	return float64(v)
+}
+func (DoubleValue) Class() Class {
+	return Double
+}
+
+var (
+	Float            = FloatClass{}
+	FloatDescriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{
+			Constructor(Number, func(val NumberValue) (FloatValue, error) {
+				return FloatValue(val), nil
+			}),
+			Constructor(Double, func(val DoubleValue) (FloatValue, error) {
+				return FloatValue(val), nil
+			}),
+			Constructor(Integer, func(val IntegerValue) (FloatValue, error) {
+				return FloatValue(val), nil
+			}),
+		},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
+	}
+)
+
+type FloatClass struct{}
+
+func (FloatClass) Name() string {
+	return "Float"
+}
+func (FloatClass) Descriptors() *ClassDescriptors {
+	return FloatDescriptors
+}
+
+type FloatValue float64
+
+func (v FloatValue) Value() interface{} {
+	return float64(v)
+}
+func (FloatValue) Class() Class {
+	return Float
+}
+
+var (
+	Integer            = IntegerClass{}
+	IntegerDescriptors = &ClassDescriptors{
+		Constructors: ClassConstructorSet{
+			Constructor(Number, func(val NumberValue) (IntegerValue, error) {
+				return IntegerValue(val), nil
+			}),
+			Constructor(Double, func(val DoubleValue) (IntegerValue, error) {
+				return IntegerValue(val), nil
+			}),
+			Constructor(Float, func(val FloatValue) (IntegerValue, error) {
+				return IntegerValue(val), nil
+			}),
+		},
+		Operators:   NumericOperators,
+		Comparators: NumericComparators,
+	}
+)
+
+type IntegerClass struct{}
+
+func (IntegerClass) Name() string {
+	return "Integer"
+}
+func (IntegerClass) Descriptors() *ClassDescriptors {
+	return IntegerDescriptors
+}
+
+type IntegerValue int64
+
+func (v IntegerValue) Value() interface{} {
+	return int64(v)
+}
+func (IntegerValue) Class() Class {
+	return Integer
+}
+
+// @ 2.2.5 `Map` Object
+
+var Map = MapClass{}
+
+type MapClass struct {
+	Properties map[string]Class `hash:"ignore"`
+}
+
+func (MapClass) Name() string {
+	return "Map"
+}
+func (mc MapClass) Descriptors() *ClassDescriptors {
+	propertyMap := ClassPropertyMap{}
+	for key, val := range mc.Properties {
+		propertyMap[key] = PropertyAttributes(PropertyOptions{
+			Class: val,
+			Getter: func(obj *MapValue) (ValueObject, error) {
+				return obj.Get(key), nil
+			},
+			Setter: func(obj *MapValue, val ValueObject) error {
+				obj.Set(key, val)
+				return nil
+			},
+		})
+	}
+	return &ClassDescriptors{
+		Properties: propertyMap,
+	}
+}
+
+func NewMapClass() MapClass {
+	return MapClass{
+		Properties: map[string]Class{},
+	}
+}
+
+type MapValue struct {
+	parentClass MapClass
+	data        map[string]ValueObject
+}
+
+func NewMapValue() *MapValue {
+	return &MapValue{
+		parentClass: NewMapClass(),
+		data:        map[string]ValueObject{},
+	}
+}
+
+func (mv *MapValue) Class() Class {
+	return mv.parentClass
+}
+func (mv *MapValue) Value() interface{} {
+	out := make(map[string]interface{})
+	for key, value := range mv.data {
+		out[key] = value.Value()
+	}
+	return out
+}
+
+func (mv *MapValue) Get(k string) ValueObject {
+	return mv.data[k]
+}
+func (mv *MapValue) Set(k string, v ValueObject) {
+	mv.parentClass.Properties[k] = v.Class()
+	mv.data[k] = v
+}
+func (mv *MapValue) Map() map[string]ValueObject {
+	return mv.data
+}
+
+// @ 2.2.6 `Nilable` Object
 
 type NilableClass struct {
 	parentClass Class
@@ -186,7 +583,7 @@ func (no *NilableValue) ValueObject() ValueObject {
 	return no.setValue
 }
 
-// @ 1.3.2 `Array` Object
+// @ 2.2.7 `Array` Object
 
 type ArrayClass struct {
 	itemClass   Class
@@ -320,77 +717,7 @@ func (av *ArrayValue) Value() interface{} {
 	return out
 }
 
-// @ 1.3.3 `Map` Object
-
-var Map = MapClass{}
-
-type MapClass struct {
-	Properties map[string]Class `hash:"ignore"`
-}
-
-func (MapClass) Name() string {
-	return "Map"
-}
-func (mc MapClass) Descriptors() *ClassDescriptors {
-	propertyMap := ClassPropertyMap{}
-	for key, val := range mc.Properties {
-		propertyMap[key] = PropertyAttributes(PropertyOptions{
-			Class: val,
-			Getter: func(obj *MapValue) (ValueObject, error) {
-				return obj.Get(key), nil
-			},
-			Setter: func(obj *MapValue, val ValueObject) error {
-				obj.Set(key, val)
-				return nil
-			},
-		})
-	}
-	return &ClassDescriptors{
-		Properties: propertyMap,
-	}
-}
-
-func NewMapClass() MapClass {
-	return MapClass{
-		Properties: map[string]Class{},
-	}
-}
-
-type MapValue struct {
-	parentClass MapClass
-	data        map[string]ValueObject
-}
-
-func NewMapValue() *MapValue {
-	return &MapValue{
-		parentClass: NewMapClass(),
-		data:        map[string]ValueObject{},
-	}
-}
-
-func (mv *MapValue) Class() Class {
-	return mv.parentClass
-}
-func (mv *MapValue) Value() interface{} {
-	out := make(map[string]interface{})
-	for key, value := range mv.data {
-		out[key] = value.Value()
-	}
-	return out
-}
-
-func (mv *MapValue) Get(k string) ValueObject {
-	return mv.data[k]
-}
-func (mv *MapValue) Set(k string, v ValueObject) {
-	mv.parentClass.Properties[k] = v.Class()
-	mv.data[k] = v
-}
-func (mv *MapValue) Map() map[string]ValueObject {
-	return mv.data
-}
-
-// @ 1.3.4 `Error` Object
+// @ 2.2.8 `Error` Object
 
 var (
 	Error            = ErrorClass{}
