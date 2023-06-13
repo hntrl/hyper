@@ -81,6 +81,10 @@ The inclusion of a prototype descriptor doesn't imply prototype-based inheritanc
 
 Prototype methods do not exist as accessible properties on the class itself, only on the value object assumed by the class.
 
+##### 2.1.4.7 `ClassProperties` Class Descriptor
+
+The class properties descriptor defines a collection of key values that associate read-only [scope values] that will be accessible as properties on the uninstanceated class object.
+
 ### 2.2 Built-in Language Objects
 
 #### 2.2.1 `Nil` Object

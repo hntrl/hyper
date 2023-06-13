@@ -253,6 +253,15 @@ func (st *SymbolTable) EvaluateBinaryExpression(node ast.BinaryExpression) (Clas
 
 func resolveValueExpressionMember(st *SymbolTable, value ScopeValue, member string) (ScopeValue, error) {
 	switch object := value.(type) {
+	case Class:
+		descriptors := object.Descriptors()
+		if descriptors.ClassProperties != nil {
+			property, ok := descriptors.ClassProperties[member]
+			if ok {
+				return property, nil
+			}
+		}
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Name(), member)
 	case ValueObject:
 		descriptors := object.Class().Descriptors()
 		if descriptors.Prototype != nil {
@@ -283,6 +292,15 @@ func resolveValueExpressionMember(st *SymbolTable, value ScopeValue, member stri
 }
 func evaluateValueExpressionMember(st *SymbolTable, value ScopeValue, member string) (ScopeValue, error) {
 	switch object := value.(type) {
+	case Class:
+		descriptors := object.Descriptors()
+		if descriptors.ClassProperties != nil {
+			property, ok := descriptors.ClassProperties[member]
+			if ok {
+				return property, nil
+			}
+		}
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Name(), member)
 	case ValueObject:
 		descriptors := object.Class().Descriptors()
 		if descriptors.Prototype != nil {
