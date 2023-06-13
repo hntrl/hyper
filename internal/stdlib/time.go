@@ -32,6 +32,15 @@ var (
 				},
 			}),
 		},
+		ClassProperties: symbols.ClassObjectPropertyMap{
+			"now": symbols.NewFunction(symbols.FunctionOptions{
+				Arguments: []symbols.Class{},
+				Returns:   DateTime,
+				Handler: func() (DateTimeValue, error) {
+					return DateTimeValue{t: time.Now()}, nil
+				},
+			}),
+		},
 	}
 )
 
