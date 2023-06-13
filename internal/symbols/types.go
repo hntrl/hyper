@@ -116,12 +116,13 @@ type Class interface {
 }
 
 type ClassDescriptors struct {
-	Constructors ClassConstructorSet
-	Operators    ClassOperatorSet
-	Comparators  ClassComparatorSet
-	Properties   ClassPropertyMap
-	Enumerable   *ClassEnumerationRules
-	Prototype    ClassPrototypeMap
+	Constructors    ClassConstructorSet
+	Operators       ClassOperatorSet
+	Comparators     ClassComparatorSet
+	Properties      ClassPropertyMap
+	Enumerable      *ClassEnumerationRules
+	Prototype       ClassPrototypeMap
+	ClassProperties ClassObjectPropertyMap
 }
 
 func classHash(class Class) ClassHash {
@@ -736,3 +737,7 @@ func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMetho
 // @ 2.1.4.6 `Prototype` Class Descriptor
 
 type ClassPrototypeMap map[string]*ClassMethod
+
+// @ 2.1.4.7 `ClassProperties` Class Descriptor
+
+type ClassObjectPropertyMap map[string]ScopeValue
