@@ -296,7 +296,7 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 				if err != nil {
 					return nil, err
 				}
-				newValueArray.items[idx] = constructedVal
+				newValueArray.Set(idx, constructedVal)
 			}
 			return newValueArray, nil
 		}
