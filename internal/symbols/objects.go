@@ -717,6 +717,13 @@ func (av *ArrayValue) Value() interface{} {
 	return out
 }
 
+func (av *ArrayValue) Get(idx int) ValueObject {
+	return av.items[idx]
+}
+func (av *ArrayValue) Set(idx int, val ValueObject) {
+	av.items[idx] = val
+}
+
 // @ 2.2.8 `Error` Object
 
 var (

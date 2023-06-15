@@ -89,10 +89,11 @@ func (st *SymbolTable) ResolveArrayExpression(node ast.ArrayExpression) (ValueOb
 		if err != nil {
 			return nil, err
 		}
-		array.items[idx], err = Construct(array.parentClass.itemClass, element)
+		constructedElement, err := Construct(array.parentClass.itemClass, element)
 		if err != nil {
-			return nil, WrappedNodeError(elementNode, err)
+			return nil, err
 		}
+		array.Set(idx, constructedElement)
 	}
 	return array, nil
 }
