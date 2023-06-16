@@ -64,8 +64,8 @@ func ParseManifest(p *parser.Parser) (*Manifest, error) {
 
 // IMPORT STRING
 type ImportStatement struct {
-	pos     tokens.Position
-	Package string
+	pos    tokens.Position
+	Source string
 }
 
 func (i ImportStatement) Validate() error {
@@ -86,6 +86,6 @@ func ParseImportStatement(p *parser.Parser) (*ImportStatement, error) {
 	if tok != tokens.STRING {
 		return nil, ExpectedError(pos, tokens.STRING, lit)
 	}
-	stmt.Package = lit
+	stmt.Source = lit
 	return &stmt, nil
 }
