@@ -18,6 +18,7 @@ func (tp TimePackage) Get(key string) (symbols.ScopeValue, error) {
 var (
 	DateTime            = DateTimeClass{}
 	DateTimeDescriptors = &symbols.ClassDescriptors{
+		Name:         "DateTime",
 		Constructors: symbols.ClassConstructorSet{},
 		Operators:    symbols.ClassOperatorSet{},
 		Comparators:  symbols.ClassComparatorSet{},
@@ -46,9 +47,6 @@ var (
 
 type DateTimeClass struct{}
 
-func (DateTimeClass) Name() string {
-	return "DateTime"
-}
 func (DateTimeClass) Descriptors() *symbols.ClassDescriptors {
 	return DateTimeDescriptors
 }
@@ -57,9 +55,9 @@ type DateTimeValue struct {
 	t time.Time
 }
 
-func (v DateTimeValue) Value() interface{} {
-	return map[string]string{"$date": v.t.Format(time.RFC3339)}
-}
 func (DateTimeValue) Class() symbols.Class {
 	return DateTime
+}
+func (v DateTimeValue) Value() interface{} {
+	return map[string]string{"$date": v.t.Format(time.RFC3339)}
 }

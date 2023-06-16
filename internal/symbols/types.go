@@ -111,11 +111,11 @@ type Callable interface {
 type ClassHash uint64
 
 type Class interface {
-	Name() string
 	Descriptors() *ClassDescriptors
 }
 
 type ClassDescriptors struct {
+	Name            string
 	Constructors    ClassConstructorSet
 	Operators       ClassOperatorSet
 	Comparators     ClassComparatorSet
@@ -176,7 +176,7 @@ func (cm ClassMethod) CallableForValue(val ValueObject) Callable {
 	}
 }
 
-// @ 2.1.4.1 `Constructors` Class Descriptor
+// @ 2.1.4.2 `Constructors` Class Descriptor
 
 type ClassConstructorSet []*ClassConstructor
 
@@ -281,7 +281,7 @@ func ShouldConstruct(target, value Class) error {
 		}
 		return ShouldConstruct(target, MapClass{Properties: propertyClassMap})
 	}
-	return StandardError(CannotConstruct, "cannot construct %s from %s", target.Name(), value.Name())
+	return StandardError(CannotConstruct, "cannot construct %s from %s", target.Descriptors().Name, value.Descriptors().Name)
 }
 func Construct(target Class, value ValueObject) (ValueObject, error) {
 	if classEquals(target, value.Class()) {
@@ -352,10 +352,10 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 		}
 		return Construct(target, castedMapValue)
 	}
-	return nil, StandardError(CannotConstruct, "cannot construct %s from %s", target.Name(), value.Class().Name())
+	return nil, StandardError(CannotConstruct, "cannot construct %s from %s", target.Descriptors().Name, value.Class().Descriptors().Name)
 }
 
-// @ 2.1.4.2 `Operators` Class Descriptor
+// @ 2.1.4.3 `Operators` Class Descriptor
 
 type ClassOperatorSet []*ClassOperator
 
@@ -417,7 +417,7 @@ func ShouldOperate(token tokens.Token, target, value Class) error {
 			return nil
 		}
 	}
-	return StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Name(), value.Name())
+	return StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Descriptors().Name, value.Descriptors().Name)
 }
 func Operate(token tokens.Token, target, value ValueObject) (ValueObject, error) {
 	targetDescriptors := target.Class().Descriptors()
@@ -433,10 +433,10 @@ func Operate(token tokens.Token, target, value ValueObject) (ValueObject, error)
 			return Construct(target.Class(), computedValue)
 		}
 	}
-	return nil, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Name(), value.Class().Name())
+	return nil, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Descriptors().Name, value.Class().Descriptors().Name)
 }
 
-// @ 2.1.4.3 `Comparators` Class Descriptor
+// @ 2.1.4.4 `Comparators` Class Descriptor
 
 type ClassComparatorSet []*ClassComparator
 
@@ -499,7 +499,7 @@ func ShouldCompare(token tokens.Token, target, value Class) error {
 			return nil
 		}
 	}
-	return StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Name(), value.Name())
+	return StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Descriptors().Name, value.Descriptors().Name)
 }
 func Compare(token tokens.Token, target, value ValueObject) (bool, error) {
 	targetDescriptors := target.Class().Descriptors()
@@ -511,10 +511,10 @@ func Compare(token tokens.Token, target, value ValueObject) (bool, error) {
 			return comparator.handler(target, value)
 		}
 	}
-	return false, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Name(), value.Class().Name())
+	return false, StandardError(UndefinedOperator, "%s operator not defined between %s and %s", token, target.Class().Descriptors().Name, value.Class().Descriptors().Name)
 }
 
-// @ 2.1.4.4 `Properties` Class Descriptor
+// @ 2.1.4.5 `Properties` Class Descriptor
 
 type ClassPropertyMap map[string]ClassPropertyAttributes
 
@@ -586,7 +586,7 @@ func makeClassSetterMethod(propertyClass Class, callback interface{}) (ClassSett
 	}, nil
 }
 
-// @ 2.1.4.5 `Enumerable` Class Descriptor
+// @ 2.1.4.6 `Enumerable` Class Descriptor
 
 type ClassEnumerationRules struct {
 	GetLength EnumerableGetLengthMethod
@@ -734,10 +734,10 @@ func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMetho
 	}, nil
 }
 
-// @ 2.1.4.6 `Prototype` Class Descriptor
+// @ 2.1.4.7 `Prototype` Class Descriptor
 
 type ClassPrototypeMap map[string]*ClassMethod
 
-// @ 2.1.4.7 `ClassProperties` Class Descriptor
+// @ 2.1.4.8 `ClassProperties` Class Descriptor
 
 type ClassObjectPropertyMap map[string]ScopeValue

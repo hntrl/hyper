@@ -198,6 +198,7 @@ func (rp RequestPackage) Get(key string) (symbols.ScopeValue, error) {
 var (
 	HTTPRequestConfig            = HTTPRequestConfigClass{}
 	HTTPRequestConfigDescriptors = &symbols.ClassDescriptors{
+		Name: "HTTPRequestConfig",
 		Properties: symbols.ClassPropertyMap{
 			"headers": symbols.PropertyAttributes(symbols.PropertyOptions{
 				Class: symbols.NewNilableClass(symbols.Map),
@@ -267,9 +268,6 @@ var (
 
 type HTTPRequestConfigClass struct{}
 
-func (HTTPRequestConfigClass) Name() string {
-	return "HTTPRequestConfig"
-}
 func (HTTPRequestConfigClass) Descriptors() *symbols.ClassDescriptors {
 	return HTTPRequestConfigDescriptors
 }
@@ -293,6 +291,7 @@ func (*HTTPRequestConfigValue) Value() interface{} {
 var (
 	HTTPAuthConfig            = HTTPAuthConfigClass{}
 	HTTPAuthConfigDescriptors = &symbols.ClassDescriptors{
+		Name: "HTTPAuthConfig",
 		Properties: symbols.ClassPropertyMap{
 			"username": symbols.PropertyAttributes(symbols.PropertyOptions{
 				Class: symbols.NewNilableClass(symbols.String),
@@ -318,9 +317,6 @@ var (
 
 type HTTPAuthConfigClass struct{}
 
-func (HTTPAuthConfigClass) Name() string {
-	return "HTTPAuthConfig"
-}
 func (HTTPAuthConfigClass) Descriptors() *symbols.ClassDescriptors {
 	return HTTPAuthConfigDescriptors
 }
@@ -340,6 +336,7 @@ func (HTTPAuthConfigValue) Value() interface{} {
 var (
 	HTTPResponse            = HTTPResponseClass{}
 	HTTPResponseDescriptors = &symbols.ClassDescriptors{
+		Name: "HTTPResponse",
 		Properties: symbols.ClassPropertyMap{
 			"status": symbols.PropertyAttributes(symbols.PropertyOptions{
 				Class: symbols.Integer,
@@ -380,10 +377,6 @@ var (
 )
 
 type HTTPResponseClass struct{}
-
-func (HTTPResponseClass) Name() string {
-	return "HTTPResponse"
-}
 
 func (HTTPResponseClass) Descriptors() *symbols.ClassDescriptors {
 	return HTTPResponseDescriptors

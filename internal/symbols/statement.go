@@ -44,11 +44,11 @@ func resolveAssignmentStatementWithSingleMember(st *SymbolTable, memberNode ast.
 	case string:
 		properties := descriptors.Properties
 		if properties == nil {
-			return StandardError(CannotSetProperty, "cannot set property %s on %s", memberInit, current.Class().Name())
+			return StandardError(CannotSetProperty, "cannot set property %s on %s", memberInit, current.Class().Descriptors().Name)
 		}
 		property := properties[memberInit]
 		if property.Setter == nil {
-			return StandardError(CannotSetProperty, "cannot set immutable property %s on %s", memberInit, current.Class().Name())
+			return StandardError(CannotSetProperty, "cannot set immutable property %s on %s", memberInit, current.Class().Descriptors().Name)
 		}
 		currentValue, err := property.Getter(current)
 		if err != nil {
@@ -62,7 +62,7 @@ func resolveAssignmentStatementWithSingleMember(st *SymbolTable, memberNode ast.
 	case ast.IndexExpression:
 		enumerable := descriptors.Enumerable
 		if enumerable == nil {
-			return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Class().Name())
+			return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Class().Descriptors().Name)
 		}
 		startIndex, endIndex, err := st.ResolveIndexExpression(memberInit, current)
 		if err != nil {
@@ -99,17 +99,17 @@ func evaluateAssignmentStatementWithSingleMember(st *SymbolTable, memberNode ast
 	case string:
 		properties := descriptors.Properties
 		if properties == nil {
-			return StandardError(CannotSetProperty, "cannot set property %s on %s", memberInit, current.Name())
+			return StandardError(CannotSetProperty, "cannot set property %s on %s", memberInit, current.Descriptors().Name)
 		}
 		property := properties[memberInit]
 		if property.Setter == nil {
-			return StandardError(CannotSetProperty, "cannot set immutable property %s on %s", memberInit, current.Name())
+			return StandardError(CannotSetProperty, "cannot set immutable property %s on %s", memberInit, current.Descriptors().Name)
 		}
 		return operandValidator(property.PropertyClass)
 	case ast.IndexExpression:
 		enumerable := descriptors.Enumerable
 		if enumerable == nil {
-			return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Name())
+			return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Descriptors().Name)
 		}
 		err := st.EvaluateIndexExpression(memberInit, current)
 		if err != nil {
@@ -134,7 +134,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 		case string:
 			properties := descriptors.Properties
 			if properties == nil {
-				return StandardError(CannotSetProperty, "cannot set property %s on %s", memberNode, current.Class().Name())
+				return StandardError(CannotSetProperty, "cannot set property %s on %s", memberNode, current.Class().Descriptors().Name)
 			}
 			propertyValue, err := properties[memberNode].Getter(current)
 			if err != nil {
@@ -144,7 +144,7 @@ func resolveAssignmentStatementForMembers(st *SymbolTable, members []ast.Assignm
 		case ast.IndexExpression:
 			enumerable := descriptors.Enumerable
 			if enumerable == nil {
-				return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Class().Name())
+				return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Class().Descriptors().Name)
 			}
 			startIndex, endIndex, err := st.ResolveIndexExpression(memberNode, current)
 			if err != nil {
@@ -186,13 +186,13 @@ func evaluateAssignmentStatementForMembers(st *SymbolTable, members []ast.Assign
 		case string:
 			properties := descriptors.Properties
 			if properties == nil {
-				return StandardError(CannotSetProperty, "cannot set property %s on %s", memberNode, current.Name())
+				return StandardError(CannotSetProperty, "cannot set property %s on %s", memberNode, current.Descriptors().Name)
 			}
 			return evaluateAssignmentStatementForMembers(st, members[1:], properties[memberNode].PropertyClass, operandValidator)
 		case ast.IndexExpression:
 			enumerable := descriptors.Enumerable
 			if enumerable == nil {
-				return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Name())
+				return StandardError(InvalidAssignmentTarget, "cannot set index on non-enumerable class %s", current.Descriptors().Name)
 			}
 			err := st.EvaluateIndexExpression(memberNode, current)
 			if err != nil {
@@ -478,7 +478,7 @@ func resolveForStatementWithRangeCondition(st *SymbolTable, conditionBlock ast.R
 	// TODO: use enumerable instead of array value
 	arr, ok := target.(*ArrayValue)
 	if !ok {
-		return nil, NodeError(conditionBlock.Target, CannotEnumerate, "%s is not enumerable", target.Class().Name())
+		return nil, NodeError(conditionBlock.Target, CannotEnumerate, "%s is not enumerable", target.Class().Descriptors().Name)
 	}
 	scopeTable := st.StartLoop()
 loopBlock:
@@ -508,7 +508,7 @@ func evaluateForStatementWithRangeCondition(st *SymbolTable, conditionBlock ast.
 	}
 	arrayClass, ok := targetClass.(ArrayClass)
 	if !ok {
-		return false, NodeError(conditionBlock.Target, CannotEnumerate, "%s is not enumerable", targetClass.Name())
+		return false, NodeError(conditionBlock.Target, CannotEnumerate, "%s is not enumerable", targetClass.Descriptors().Name)
 	}
 	scopeTable := st.StartLoop()
 	scopeTable.Local[conditionBlock.Index] = Integer
@@ -543,7 +543,7 @@ func (st *SymbolTable) ResolveSwitchBlock(node ast.SwitchBlock) (ValueObject, er
 	comparators := target.Class().Descriptors().Comparators
 	// TODO: see if the equals comparator exists
 	if comparators == nil {
-		return nil, NodeError(node.Target, InvalidSwitchTarget, "switch target %s is not operable", target.Class().Name())
+		return nil, NodeError(node.Target, InvalidSwitchTarget, "switch target %s is not operable", target.Class().Descriptors().Name)
 	}
 	resolved := false
 	for _, caseBlock := range node.Statements {
@@ -592,7 +592,7 @@ func (st *SymbolTable) EvaluateSwitchBlock(node ast.SwitchBlock, shouldReturn Cl
 	}
 	comparators := targetClass.Descriptors().Comparators
 	if comparators == nil {
-		return false, NodeError(node.Target, InvalidSwitchTarget, "switch target %s is not operable", targetClass.Name())
+		return false, NodeError(node.Target, InvalidSwitchTarget, "switch target %s is not operable", targetClass.Descriptors().Name)
 	}
 	defaultBlockReturns := false
 	hasDefaultBlock := false
@@ -672,7 +672,7 @@ func (st *SymbolTable) ResolveBlockStatement(node ast.BlockStatement) (returnObj
 		}
 		thrownError, ok := returnObject.(ErrorValue)
 		if !ok {
-			return nil, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnObject.Class().Name())
+			return nil, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnObject.Class().Descriptors().Name)
 		}
 		return nil, thrownError
 	default:
@@ -712,7 +712,7 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 			return false, err
 		}
 		if !classEquals(returnedClass, shouldReturn) {
-			return false, NodeError(node, InvalidReturnType, "should return %s, got %s", returnedClass.Name(), shouldReturn.Name())
+			return false, NodeError(node, InvalidReturnType, "should return %s, got %s", returnedClass.Descriptors().Name, shouldReturn.Descriptors().Name)
 		}
 		return true, nil
 	case ast.ThrowStatement:
@@ -721,7 +721,7 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 			return false, err
 		}
 		if _, ok := returnedClass.(ErrorClass); !ok {
-			return false, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnedClass.Name())
+			return false, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnedClass.Descriptors().Name)
 		}
 		return true, nil
 	default:

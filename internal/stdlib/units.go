@@ -16,6 +16,7 @@ func (up UnitsPackage) Get(key string) (symbols.ScopeValue, error) {
 var (
 	Dimension            = DimensionClass{}
 	DimensionDescriptors = &symbols.ClassDescriptors{
+		Name: "Dimension",
 		Properties: symbols.ClassPropertyMap{
 			"width": symbols.PropertyAttributes(symbols.PropertyOptions{
 				Class: symbols.Float,
@@ -43,9 +44,6 @@ var (
 
 type DimensionClass struct{}
 
-func (DimensionClass) Name() string {
-	return "Dimension"
-}
 func (DimensionClass) Descriptors() *symbols.ClassDescriptors {
 	return DimensionDescriptors
 }

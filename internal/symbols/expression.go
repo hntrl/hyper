@@ -182,7 +182,7 @@ func (st *SymbolTable) ResolveUnaryExpression(node ast.UnaryExpression) (ValueOb
 	case tokens.NOT:
 		boolValue, ok := obj.(BooleanValue)
 		if !ok {
-			return nil, NodeError(node, InvalidUnaryOperand, "cannot apply unary ! to %s", obj.Class().Name())
+			return nil, NodeError(node, InvalidUnaryOperand, "cannot apply unary ! to %s", obj.Class().Descriptors().Name)
 		}
 		return BooleanValue(!boolValue), nil
 	default:
@@ -262,7 +262,7 @@ func resolveValueExpressionMember(st *SymbolTable, value ScopeValue, member stri
 				return property, nil
 			}
 		}
-		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Name(), member)
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Descriptors().Name, member)
 	case ValueObject:
 		descriptors := object.Class().Descriptors()
 		if descriptors.Prototype != nil {
@@ -277,7 +277,7 @@ func resolveValueExpressionMember(st *SymbolTable, value ScopeValue, member stri
 				return property.Getter(object)
 			}
 		}
-		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Class().Name(), member)
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Class().Descriptors().Name, member)
 	case Object:
 		val, err := object.Get(member)
 		if err != nil {
@@ -301,7 +301,7 @@ func evaluateValueExpressionMember(st *SymbolTable, value ScopeValue, member str
 				return property, nil
 			}
 		}
-		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Name(), member)
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Descriptors().Name, member)
 	case ValueObject:
 		descriptors := object.Class().Descriptors()
 		if descriptors.Prototype != nil {
@@ -316,7 +316,7 @@ func evaluateValueExpressionMember(st *SymbolTable, value ScopeValue, member str
 				return property.PropertyClass, nil
 			}
 		}
-		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Class().Name(), member)
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Class().Descriptors().Name, member)
 	case Object:
 		val, err := object.Get(member)
 		if err != nil {
@@ -430,7 +430,7 @@ func (st *SymbolTable) ResolveValueExpression(node ast.ValueExpression) (ValueOb
 			}
 			enumerable := currentValueObject.Class().Descriptors().Enumerable
 			if enumerable == nil {
-				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", currentValueObject.Class().Name())
+				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", currentValueObject.Class().Descriptors().Name)
 			}
 			startIndex, endIndex, err := st.ResolveIndexExpression(member, currentValueObject)
 			if err != nil {
@@ -477,7 +477,7 @@ func (st *SymbolTable) EvaluateValueExpression(node ast.ValueExpression) (Class,
 			}
 			enumerable := currentClass.Descriptors().Enumerable
 			if enumerable == nil {
-				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", currentClass.Name())
+				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", currentClass.Descriptors().Name)
 			}
 			err = st.EvaluateIndexExpression(member, currentClass)
 		}
@@ -495,7 +495,7 @@ func (st *SymbolTable) EvaluateValueExpression(node ast.ValueExpression) (Class,
 func (st *SymbolTable) ResolveIndexExpression(node ast.IndexExpression, target ValueObject) (int, int, error) {
 	enumerable := target.Class().Descriptors().Enumerable
 	if enumerable == nil {
-		return -1, -1, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", target.Class().Name())
+		return -1, -1, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", target.Class().Descriptors().Name)
 	}
 	startIndex := 0
 	if node.Left != nil {
@@ -505,7 +505,7 @@ func (st *SymbolTable) ResolveIndexExpression(node ast.IndexExpression, target V
 		}
 		leftIntValue, ok := leftValue.(IntegerValue)
 		if !ok {
-			return -1, -1, NodeError(node, InvalidIndex, "index must be an Integer, got %s", leftValue.Class().Name())
+			return -1, -1, NodeError(node, InvalidIndex, "index must be an Integer, got %s", leftValue.Class().Descriptors().Name)
 		}
 		startIndex = int(leftIntValue)
 	}
@@ -521,7 +521,7 @@ func (st *SymbolTable) ResolveIndexExpression(node ast.IndexExpression, target V
 			}
 			rightIntValue, ok := rightValue.(IntegerValue)
 			if !ok {
-				return -1, -1, NodeError(node.Right, InvalidIndex, "index must be an Integer, got %s", rightValue.Class().Name())
+				return -1, -1, NodeError(node.Right, InvalidIndex, "index must be an Integer, got %s", rightValue.Class().Descriptors().Name)
 			}
 			endIndex = int(rightIntValue)
 		}
@@ -532,7 +532,7 @@ func (st *SymbolTable) ResolveIndexExpression(node ast.IndexExpression, target V
 func (st *SymbolTable) EvaluateIndexExpression(node ast.IndexExpression, target Class) error {
 	enumerable := target.Descriptors().Enumerable
 	if enumerable == nil {
-		return NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", target.Name())
+		return NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", target.Descriptors().Name)
 	}
 	if node.Left != nil {
 		leftClass, err := st.EvaluateExpression(*node.Left)
@@ -540,7 +540,7 @@ func (st *SymbolTable) EvaluateIndexExpression(node ast.IndexExpression, target 
 			return err
 		}
 		if _, ok := leftClass.(IntegerClass); !ok {
-			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", leftClass.Name())
+			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", leftClass.Descriptors().Name)
 		}
 	}
 	if node.Right != nil {
@@ -549,7 +549,7 @@ func (st *SymbolTable) EvaluateIndexExpression(node ast.IndexExpression, target 
 			return err
 		}
 		if _, ok := rightClass.(IntegerClass); !ok {
-			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", rightClass.Name())
+			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", rightClass.Descriptors().Name)
 		}
 	}
 	return nil

@@ -6,9 +6,20 @@ import (
 	"github.com/hntrl/hyper/internal/symbols"
 )
 
+type MimeTypesPackage struct{}
+
+func (mt MimeTypesPackage) Get(key string) (symbols.ScopeValue, error) {
+	switch key {
+	case "MimeType":
+		return MimeType, nil
+	}
+	return nil, nil
+}
+
 var (
 	MimeType            = MimeTypeClass{}
 	MimeTypeDescriptors = &symbols.ClassDescriptors{
+		Name: "MimeType",
 		Constructors: symbols.ClassConstructorSet{
 			symbols.Constructor(symbols.String, func(strValue symbols.StringValue) (MimeTypeValue, error) {
 				str := string(strValue)
@@ -25,9 +36,6 @@ var (
 
 type MimeTypeClass struct{}
 
-func (MimeTypeClass) Name() string {
-	return "MimeType"
-}
 func (MimeTypeClass) Descriptors() *symbols.ClassDescriptors {
 	return MimeTypeDescriptors
 }
@@ -37,15 +45,8 @@ type MimeTypeValue string
 func (MimeTypeValue) Class() symbols.Class {
 	return MimeType
 }
-
-type MimeTypesPackage struct{}
-
-func (mt MimeTypesPackage) Get(key string) (symbols.ScopeValue, error) {
-	switch key {
-	case "MimeType":
-		return MimeType, nil
-	}
-	return nil, nil
+func (mt MimeTypeValue) Value() interface{} {
+	return string(mt)
 }
 
 var types = []string{
