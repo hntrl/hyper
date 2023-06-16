@@ -12,14 +12,12 @@ import (
 
 var (
 	Nil            = NilClass{}
-	NilDescriptors = &ClassDescriptors{}
+	NilDescriptors = &ClassDescriptors{
+		Name: "<nil>",
+	}
 )
 
 type NilClass struct{}
-
-func (NilClass) Name() string {
-	return "<nil>"
-}
 
 func (NilClass) Descriptors() *ClassDescriptors {
 	return NilDescriptors
@@ -27,11 +25,11 @@ func (NilClass) Descriptors() *ClassDescriptors {
 
 type NilValue struct{}
 
-func (NilValue) Value() interface{} {
-	return nil
-}
 func (NilValue) Class() Class {
 	return Nil
+}
+func (NilValue) Value() interface{} {
+	return nil
 }
 
 // @ 2.2.2 `Boolean` Primitive
@@ -39,6 +37,7 @@ func (NilValue) Class() Class {
 var (
 	Boolean            = BooleanClass{}
 	BooleanDescriptors = &ClassDescriptors{
+		Name:         "Boolean",
 		Constructors: ClassConstructorSet{},
 		Comparators: ClassComparatorSet{
 			Comparator(Boolean, tokens.AND, func(a, b BooleanValue) (bool, error) {
@@ -53,21 +52,17 @@ var (
 
 type BooleanClass struct{}
 
-func (BooleanClass) Name() string {
-	return "Boolean"
-}
-
 func (BooleanClass) Descriptors() *ClassDescriptors {
 	return BooleanDescriptors
 }
 
 type BooleanValue bool
 
-func (v BooleanValue) Value() interface{} {
-	return bool(v)
-}
 func (BooleanValue) Class() Class {
 	return Boolean
+}
+func (v BooleanValue) Value() interface{} {
+	return bool(v)
 }
 
 // @ 2.2.3 `String Primitive`
@@ -75,6 +70,7 @@ func (BooleanValue) Class() Class {
 var (
 	String            = StringClass{}
 	StringDescriptors = &ClassDescriptors{
+		Name: "String",
 		Constructors: ClassConstructorSet{
 			Constructor(Number, func(val NumberValue) (StringValue, error) {
 				return "", nil
@@ -100,21 +96,17 @@ var (
 
 type StringClass struct{}
 
-func (StringClass) Name() string {
-	return "String"
-}
-
 func (StringClass) Descriptors() *ClassDescriptors {
 	return StringDescriptors
 }
 
 type StringValue string
 
-func (v StringValue) Value() interface{} {
-	return string(v)
-}
 func (StringValue) Class() Class {
 	return String
+}
+func (v StringValue) Value() interface{} {
+	return string(v)
 }
 
 // @ 2.2.4 Numeric Primitives
@@ -203,6 +195,7 @@ func init() {
 var (
 	Number            = NumberClass{}
 	NumberDescriptors = &ClassDescriptors{
+		Name: "Number",
 		Constructors: ClassConstructorSet{
 			Constructor(Double, func(val DoubleValue) (NumberValue, error) {
 				return NumberValue(val), nil
@@ -222,26 +215,23 @@ var (
 
 type NumberClass struct{}
 
-func (NumberClass) Name() string {
-	return "Number"
-}
-
 func (NumberClass) Descriptors() *ClassDescriptors {
 	return NumberDescriptors
 }
 
 type NumberValue float64
 
-func (v NumberValue) Value() interface{} {
-	return float64(v)
-}
 func (NumberValue) Class() Class {
 	return Number
+}
+func (v NumberValue) Value() interface{} {
+	return float64(v)
 }
 
 var (
 	Double            = DoubleClass{}
 	DoubleDescriptors = &ClassDescriptors{
+		Name: "Double",
 		Constructors: ClassConstructorSet{
 			Constructor(Number, func(val NumberValue) (DoubleValue, error) {
 				return DoubleValue(val), nil
@@ -260,25 +250,23 @@ var (
 
 type DoubleClass struct{}
 
-func (DoubleClass) Name() string {
-	return "Double"
-}
 func (DoubleClass) Descriptors() *ClassDescriptors {
 	return DoubleDescriptors
 }
 
 type DoubleValue float64
 
-func (v DoubleValue) Value() interface{} {
-	return float64(v)
-}
 func (DoubleValue) Class() Class {
 	return Double
+}
+func (v DoubleValue) Value() interface{} {
+	return float64(v)
 }
 
 var (
 	Float            = FloatClass{}
 	FloatDescriptors = &ClassDescriptors{
+		Name: "Float",
 		Constructors: ClassConstructorSet{
 			Constructor(Number, func(val NumberValue) (FloatValue, error) {
 				return FloatValue(val), nil
@@ -297,25 +285,23 @@ var (
 
 type FloatClass struct{}
 
-func (FloatClass) Name() string {
-	return "Float"
-}
 func (FloatClass) Descriptors() *ClassDescriptors {
 	return FloatDescriptors
 }
 
 type FloatValue float64
 
-func (v FloatValue) Value() interface{} {
-	return float64(v)
-}
 func (FloatValue) Class() Class {
 	return Float
+}
+func (v FloatValue) Value() interface{} {
+	return float64(v)
 }
 
 var (
 	Integer            = IntegerClass{}
 	IntegerDescriptors = &ClassDescriptors{
+		Name: "Integer",
 		Constructors: ClassConstructorSet{
 			Constructor(Number, func(val NumberValue) (IntegerValue, error) {
 				return IntegerValue(val), nil
@@ -334,20 +320,17 @@ var (
 
 type IntegerClass struct{}
 
-func (IntegerClass) Name() string {
-	return "Integer"
-}
 func (IntegerClass) Descriptors() *ClassDescriptors {
 	return IntegerDescriptors
 }
 
 type IntegerValue int64
 
-func (v IntegerValue) Value() interface{} {
-	return int64(v)
-}
 func (IntegerValue) Class() Class {
 	return Integer
+}
+func (v IntegerValue) Value() interface{} {
+	return int64(v)
 }
 
 // @ 2.2.5 `Map` Object
@@ -358,9 +341,6 @@ type MapClass struct {
 	Properties map[string]Class `hash:"ignore"`
 }
 
-func (MapClass) Name() string {
-	return "Map"
-}
 func (mc MapClass) Descriptors() *ClassDescriptors {
 	propertyMap := ClassPropertyMap{}
 	for key, val := range mc.Properties {
@@ -376,10 +356,10 @@ func (mc MapClass) Descriptors() *ClassDescriptors {
 		})
 	}
 	return &ClassDescriptors{
+		Name:       "Map",
 		Properties: propertyMap,
 	}
 }
-
 func NewMapClass() MapClass {
 	return MapClass{
 		Properties: map[string]Class{},
@@ -431,6 +411,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 	parentDescriptors := parentClass.Descriptors()
 	nilableClass := NilableClass{parentClass: parentClass}
 	nilableClass.descriptors = &ClassDescriptors{
+		Name: fmt.Sprintf("%s?", parentDescriptors.Name),
 		Constructors: ClassConstructorSet{
 			Constructor(Nil, func() (*NilableValue, error) {
 				return &NilableValue{
@@ -550,10 +531,6 @@ func NewNilableClass(parentClass Class) NilableClass {
 	return nilableClass
 }
 
-func (nc NilableClass) Name() string {
-	return fmt.Sprintf("%s?", nc.parentClass.Name())
-}
-
 func (nc NilableClass) Descriptors() *ClassDescriptors {
 	return nc.descriptors
 }
@@ -596,6 +573,7 @@ func NewArrayClass(itemClass Class) ArrayClass {
 		itemClass: itemClass,
 	}
 	arrayClass.descriptors = &ClassDescriptors{
+		Name: fmt.Sprintf("[]%s", itemClass.Descriptors().Name),
 		Constructors: ClassConstructorSet{
 			Constructor(arrayClass, func(arr ArrayValue) (ArrayValue, error) {
 				newArray := ArrayValue{parentClass: arr.parentClass, items: make([]ValueObject, len(arr.items))}
@@ -684,10 +662,6 @@ func NewArrayClass(itemClass Class) ArrayClass {
 	return arrayClass
 }
 
-func (ac ArrayClass) Name() string {
-	return fmt.Sprintf("[]%s", ac.itemClass.Name())
-}
-
 func (ac ArrayClass) Descriptors() *ClassDescriptors {
 	return ac.descriptors
 }
@@ -729,6 +703,7 @@ func (av *ArrayValue) Set(idx int, val ValueObject) {
 var (
 	Error            = ErrorClass{}
 	ErrorDescriptors = &ClassDescriptors{
+		Name: "Error",
 		Properties: ClassPropertyMap{
 			"name": PropertyAttributes(PropertyOptions{
 				Class: String,
@@ -748,9 +723,6 @@ var (
 
 type ErrorClass struct{}
 
-func (ErrorClass) Name() string {
-	return "Error"
-}
 func (ErrorClass) Descriptors() *ClassDescriptors {
 	return ErrorDescriptors
 }

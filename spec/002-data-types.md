@@ -26,13 +26,17 @@ Classes exist as language interfaces since they must be invoked in-scope to prov
 
 - A _class method_ is a function that pertains to an interaction of a class whos argument list begins with a reference to the subject value object.
 
-##### 2.1.4.1 `Constructors` Class Descriptor
+##### 2.1.4.1 `Name` Class Descriptor
+
+The name descriptor attaches a human-friendly name to a class. This name is used for highlighting values in errors and debugging.
+
+##### 2.1.4.2 `Constructors` Class Descriptor
 
 The constructors descriptor is a set of [constructors (annotation needed)] that establishes the logic of instanceating the parent class from another class.
 
 --Define constructor signature (fromClass, toClass, (ValueObject\<fromClass>) => ValueObject\<toClass>)--
 
-##### 2.1.4.2 `Operators` Class Descriptor
+##### 2.1.4.3 `Operators` Class Descriptor
 
 The operators descriptor is a set of operator methods used in evaluating certain [binary expressions (annotation needed)].
 
@@ -42,7 +46,7 @@ The operators descriptor is a set of operator methods used in evaluating certain
 
 --Define operator method signature (leftOperandClass, rightOperandClass, operator, (ValueObject\<leftOperandClass>, ValueObject\<rightOperandClass>) => ValueObject\<leftOperandClass>)--
 
-##### 2.1.4.3 `Comparators` Class Desciptor
+##### 2.1.4.4 `Comparators` Class Desciptor
 
 The comparators descriptor is a set of comparator methods used when evaluating certain [binary expressions (annotation needed)].
 
@@ -50,7 +54,7 @@ The comparators descriptor is a set of comparator methods used when evaluating c
 
 --Define comparator method signature (leftOperandClass, rightOperandClass, operator, (ValueObject\<leftOperandClass>, ValueObject\<rightOperandClass>) => Boolean)--
 
-##### 2.1.4.4 `Properties` Class Descriptor
+##### 2.1.4.5 `Properties` Class Descriptor
 
 The properties descriptor is used to describe an ordered collection of properties that should be associated to a value object. Each property is described by it's key value, the class the property assumes, a getter method in the case that the property is accessible, and a setter method in the case that the property is mutable.
 
@@ -59,7 +63,7 @@ The properties descriptor is used to describe an ordered collection of propertie
 
 Properties will be superceded by [prototype methods] defined in the _Prototype_ Class Descriptor that share the same key value.
 
-##### 2.1.4.5 `Enumerable` Class Descriptor
+##### 2.1.4.6 `Enumerable` Class Descriptor
 
 The enumerable descriptor contains a set of zero or more [class methods] that are invoked when being evaluted in certain [enumeration expressions (annotation needed)].
 
@@ -73,7 +77,7 @@ The enumerable descriptor contains a set of zero or more [class methods] that ar
 | GetRange        | (ValueObject, fromIndex, toIndex) => ValueObject           |             | ValueObject[fromIndex:toIndex]            |
 | SetRange        | (ValueObject, fromIndex, toIndex, newValue) => ValueObject |             | ValueObject[fromIndex:toIndex] = newValue |
 
-##### 2.1.4.6 `Prototype` Class Descriptor
+##### 2.1.4.7 `Prototype` Class Descriptor
 
 The prototype descriptor defines a collection of key values that associate read-only [class methods] that will be accessible as properties from the value object.
 
@@ -81,7 +85,7 @@ The inclusion of a prototype descriptor doesn't imply prototype-based inheritanc
 
 Prototype methods do not exist as accessible properties on the class itself, only on the value object assumed by the class.
 
-##### 2.1.4.7 `ClassProperties` Class Descriptor
+##### 2.1.4.8 `ClassProperties` Class Descriptor
 
 The class properties descriptor defines a collection of key values that associate read-only [scope values] that will be accessible as properties on the uninstanceated class object.
 
