@@ -18,8 +18,8 @@ func TestManifest(t *testing.T) {
 		expects: &Manifest{
 			Imports: []ImportStatement{
 				{
-					pos:     tokens.Position{Line: 1, Column: 1},
-					Package: "foo",
+					pos:    tokens.Position{Line: 1, Column: 1},
+					Source: "foo",
 				},
 			},
 			Context: Context{
@@ -47,8 +47,8 @@ func TestImportStatement(t *testing.T) {
 			return ParseImportStatement(p)
 		},
 		expects: &ImportStatement{
-			pos:     tokens.Position{Line: 1, Column: 1},
-			Package: "foo",
+			pos:    tokens.Position{Line: 1, Column: 1},
+			Source: "foo",
 		},
 		expectsError: nil,
 		endingToken:  tokens.EOF,

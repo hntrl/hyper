@@ -6,7 +6,7 @@ Manifest :: ImportStatement* Context
   * Context: Context
 
 ImportStatement :: IMPORT STRING
-  * Package: string
+  * Source: string
 
 Selector :: IDENT
           | IDENT PERIOD Selector
