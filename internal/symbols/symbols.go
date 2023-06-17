@@ -6,6 +6,7 @@ import (
 )
 
 type SymbolTable struct {
+	Root      Object
 	Immutable map[string]ScopeValue
 	Local     map[string]ScopeValue
 	LoopState *SymbolTableLoopState
@@ -16,6 +17,15 @@ type SymbolTableLoopState struct {
 	ShouldBreak    bool
 }
 
+func NewSymbolTable(root Object) *SymbolTable {
+	return &SymbolTable{
+		Root:      root,
+		Immutable: make(map[string]ScopeValue),
+		Local:     make(map[string]ScopeValue),
+		LoopState: nil,
+	}
+}
+
 func (st *SymbolTable) Get(key string) (ScopeValue, error) {
 	if obj := st.Immutable[key]; obj != nil {
 		return obj, nil
@@ -23,9 +33,8 @@ func (st *SymbolTable) Get(key string) (ScopeValue, error) {
 	if obj := st.Local[key]; obj != nil {
 		return obj, nil
 	}
-	return nil, nil
+	return st.Root.Get(key)
 }
-
 func (st *SymbolTable) Clone() SymbolTable {
 	immutable := make(map[string]ScopeValue)
 	for k, v := range st.Immutable {
