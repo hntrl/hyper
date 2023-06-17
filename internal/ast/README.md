@@ -26,8 +26,8 @@ Context :: COMMENT? CONTEXT Selector LCURLY (UseStatement | ContextItem)* RCURLY
 ContextItemSet :: ContextItem*
   * Items: []ContextItem
 
-ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | RemoteContextMethod | FunctionExpression)
-  * Init: (ContextObject | ContextObjectMethod | ContextMethod | RemoteContextMethod | FunctionExpression)
+ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
+  * Init: (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
 
 UseStatement :: USE IDENT
   * Source: string
@@ -50,13 +50,6 @@ ContextMethod :: COMMENT? PRIVATE? IDENT IDENT FunctionBlock
   * Interface: string
   * Name: string
   * Block: FunctionBlock
-  * Comment: string
-
-RemoteContextMethod :: COMMENT? PRIVATE? REMOTE IDENT IDENT FunctionParameters
-  * Private: bool
-  * Interface: string
-  * Name: string
-  * Parameters: FunctionParameters
   * Comment: string
 
 FieldStatement :: COMMENT? FieldAssignmentExpression

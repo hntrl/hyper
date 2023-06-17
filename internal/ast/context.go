@@ -140,9 +140,9 @@ func ParseContextItemSet(p *parser.Parser) (*ContextItemSet, error) {
 	return &set, nil
 }
 
-// ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | RemoteContextMethod | FunctionExpression)
+// ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
 type ContextItem struct {
-	Init Node `types:"ContextObject,ContextObjectMethod,ContextMethod,RemoteContextMethod,FunctionExpression"`
+	Init Node `types:"ContextObject,ContextObjectMethod,ContextMethod,FunctionExpression"`
 }
 
 func (i ContextItem) Validate() error {
@@ -155,10 +155,6 @@ func (i ContextItem) Validate() error {
 			return err
 		}
 	} else if method, ok := i.Init.(ContextMethod); ok {
-		if err := method.Validate(); err != nil {
-			return err
-		}
-	} else if method, ok := i.Init.(RemoteContextMethod); ok {
 		if err := method.Validate(); err != nil {
 			return err
 		}
@@ -200,32 +196,22 @@ func ParseContextItem(p *parser.Parser) (*ContextItem, error) {
 			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 		}
 		if tok == tokens.PRIVATE {
-			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+			p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 		}
-		if tok == tokens.REMOTE {
-			p.Rollback(startIndex - 1)
-			method, err := ParseRemoteContextMethod(p)
+		_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		p.Rollback(startIndex - 1)
+		if tok == tokens.LPAREN {
+			method, err := ParseContextMethod(p)
 			if err != nil {
 				return nil, err
 			}
 			return &ContextItem{*method}, nil
 		} else {
-			p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-			p.Rollback(startIndex - 1)
-			if tok == tokens.LPAREN {
-				method, err := ParseContextMethod(p)
-				if err != nil {
-					return nil, err
-				}
-				return &ContextItem{*method}, nil
-			} else {
-				obj, err := ParseContextObject(p)
-				if err != nil {
-					return nil, err
-				}
-				return &ContextItem{*obj}, nil
+			obj, err := ParseContextObject(p)
+			if err != nil {
+				return nil, err
 			}
+			return &ContextItem{*obj}, nil
 		}
 	}
 }
@@ -453,59 +439,5 @@ func ParseContextMethod(p *parser.Parser) (*ContextMethod, error) {
 		return nil, err
 	}
 	method.Block = *block
-	return &method, nil
-}
-
-// RemoteContextMethod :: COMMENT? PRIVATE? REMOTE IDENT IDENT FunctionParameters
-type RemoteContextMethod struct {
-	pos        tokens.Position
-	Private    bool
-	Interface  string
-	Name       string
-	Parameters FunctionParameters
-	Comment    string
-}
-
-func (c RemoteContextMethod) Validate() error {
-	return c.Parameters.Validate()
-}
-
-func (c RemoteContextMethod) Pos() tokens.Position {
-	return c.pos
-}
-
-func ParseRemoteContextMethod(p *parser.Parser) (*RemoteContextMethod, error) {
-	method := RemoteContextMethod{}
-
-	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE)
-	if tok == tokens.COMMENT {
-		method.Comment = lit
-		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE)
-	}
-	if tok == tokens.PRIVATE {
-		method.Private = true
-		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	}
-	if tok != tokens.REMOTE {
-		return nil, ExpectedError(pos, tokens.REMOTE, lit)
-	}
-	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	if tok != tokens.IDENT {
-		return nil, ExpectedError(pos, tokens.IDENT, lit)
-	}
-	method.Interface = lit
-	method.pos = pos
-
-	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	if tok != tokens.IDENT {
-		return nil, ExpectedError(pos, tokens.IDENT, lit)
-	}
-	method.Name = lit
-
-	params, err := ParseFunctionParameters(p)
-	if err != nil {
-		return nil, err
-	}
-	method.Parameters = *params
 	return &method, nil
 }
