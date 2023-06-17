@@ -1,27 +1,21 @@
-package context
+package domain
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 
 	"github.com/hntrl/hyper/internal/ast"
 	"github.com/hntrl/hyper/internal/parser"
-	"github.com/hntrl/hyper/internal/tokens"
 )
 
 // FIXME: locate these methods into somewhere other than context/
 
 func ParseContextFromFile(path string) (*ast.Manifest, error) {
-	errorHandler := func(pos tokens.Position, msg string) {
-		panic(fmt.Sprintf("%s, %s", pos.String(), msg))
-	}
-
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	lexer := parser.NewLexer(bufio.NewReader(file), errorHandler)
+	lexer := parser.NewLexer(bufio.NewReader(file))
 	parser := parser.NewParser(lexer)
 
 	manifest, err := ast.ParseManifest(parser)
@@ -36,15 +30,11 @@ func ParseContextFromFile(path string) (*ast.Manifest, error) {
 }
 
 func ParseContextItemSetFromFile(path string) (*ast.ContextItemSet, error) {
-	errorHandler := func(pos tokens.Position, msg string) {
-		panic(fmt.Sprintf("%s, %s, %s", path, pos.String(), msg))
-	}
-
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	lexer := parser.NewLexer(bufio.NewReader(file), errorHandler)
+	lexer := parser.NewLexer(bufio.NewReader(file))
 	parser := parser.NewParser(lexer)
 
 	items, err := ast.ParseContextItemSet(parser)
