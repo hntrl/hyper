@@ -19,10 +19,8 @@ type TestFixture struct {
 	endingToken  tokens.Token
 }
 
-var errHandler = func(pos tokens.Position, msg string) {}
-
 func evaluateTest(test TestFixture) error {
-	lexer := parser.NewLexer(bufio.NewReader(strings.NewReader(test.lit)), errHandler)
+	lexer := parser.NewLexer(bufio.NewReader(strings.NewReader(test.lit)))
 	parser := parser.NewParser(lexer)
 
 	node, err := test.parseFn(parser)
