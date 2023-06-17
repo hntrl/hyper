@@ -9,652 +9,487 @@ import (
 	"time"
 
 	"github.com/hntrl/hyper/internal/ast"
-	langCtx "github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/runtime"
 	"github.com/hntrl/hyper/internal/runtime/log"
 	"github.com/hntrl/hyper/internal/runtime/resource"
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	mongoOptions "go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var seededRand = rand.New(rand.NewSource(time.Now().UnixNano()))
-
-type Entity struct {
-	ParentType    symbols.Type
-	eventLog      *mongo.Collection               `hash:"ignore"`
-	workingRecord *mongo.Collection               `hash:"ignore"`
-	cancelStream  context.CancelFunc              `hash:"ignore"`
-	methods       map[effectType]symbols.Function `hash:"ignore"`
-}
 
 var EntityStreamSignal = log.Signal("ENTITY_STREAM")
 var EntityMethodSignal = log.Signal("ENTITY_METHOD")
 var EntityCollectionSignal = log.Signal("ENTITY_COLLECTION")
 
-func (ent Entity) ClassName() string {
-	return ent.ParentType.Name
+type EntityInterface struct{}
+
+func (EntityInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*domain.ContextItem, error) {
+	table := ctx.Symbols()
+	ent := Entity{
+		Name:       node.Name,
+		Private:    node.Private,
+		Comment:    node.Comment,
+		Properties: make(map[string]symbols.Class),
+	}
+	if node.Extends != nil {
+		extendedType, err := table.ResolveSelector(*node.Extends)
+		if err != nil {
+			return nil, err
+		}
+		extendedTypeClass, ok := extendedType.(symbols.Class)
+		if !ok {
+			return nil, errors.NodeError(node.Extends, 0, "cannot extend %T", extendedType)
+		}
+		properties := extendedTypeClass.Descriptors().Properties
+		if properties == nil {
+			return nil, errors.NodeError(node.Extends, 0, "cannot extend %s", extendedTypeClass.Descriptors().Name)
+		}
+		for k, v := range properties {
+			ent.Properties[k] = v.PropertyClass
+		}
+	}
+	for _, item := range node.Fields {
+		switch field := item.Init.(type) {
+		case ast.FieldExpression:
+			class, err := table.EvaluateTypeExpression(field.Init)
+			if err != nil {
+				return nil, err
+			}
+			ent.Properties[field.Name] = class
+		default:
+			return nil, errors.NodeError(field, 0, "%T not allowed in entity", item)
+		}
+	}
+	store := EntityStore{
+		entityType: ent,
+		methods:    make(map[EffectType]symbols.Function),
+	}
+	if !node.Private {
+		return &domain.ContextItem{
+			HostItem:   store,
+			RemoteItem: ent,
+		}, nil
+	} else {
+		return &domain.ContextItem{
+			HostItem:   store,
+			RemoteItem: nil,
+		}, nil
+	}
 }
-func (ent Entity) Fields() map[string]symbols.Class {
-	return ent.ParentType.Fields()
+
+// EntityStore is synonymous to Entity (it uses the same value type
+// EntityValue). Only difference is this acts as the connection to the database
+// for the host context.
+type EntityStore struct {
+	entityType   Entity
+	eventLog     *mongo.Collection               `hash:"ignore"`
+	projection   *mongo.Collection               `hash:"ignore"`
+	cancelStream context.CancelFunc              `hash:"ignore"`
+	methods      map[EffectType]symbols.Function `hash:"ignore"`
 }
-func (ent Entity) Constructors() symbols.ConstructorMap {
-	csMap := symbols.NewConstructorMap()
-	csMap.AddConstructor(EntityInstance{ParentType: ent}, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
-		inst := obj.(EntityInstance)
-		return &EntityType{ent, inst.fields}, nil
-	})
-	csMap.AddGenericConstructor(ent, func(fields map[string]symbols.ValueObject) (symbols.ValueObject, error) {
-		return &EntityType{ent, fields}, nil
-	})
-	return csMap
-}
-func (ent Entity) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
+
+func (es EntityStore) Descriptors() *symbols.ClassDescriptors {
+	descriptors := *es.entityType.Descriptors()
+	descriptors.ClassProperties = symbols.ClassObjectPropertyMap{
 		"find": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				symbols.NewPartialObject(ent),
-				QueryOpts{},
+				es.entityType,
+				QueryOptions,
 			},
-			Returns: symbols.Iterable{
-				ParentType: EntityInstance{ParentType: ent},
-				Items:      []symbols.ValueObject{},
-			},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if ent.eventLog == nil {
-					return nil, fmt.Errorf("db connection not initialized")
+			Returns: symbols.NewArrayClass(EntityInstance{entityFactory: es}),
+			Handler: func(filterValue *EntityValue, options QueryOptionsValue) (*symbols.ArrayValue, error) {
+				dbFindOptions := mongoOptions.Find()
+				if options.Skip != -1 {
+					dbFindOptions = dbFindOptions.SetSkip(options.Skip)
 				}
-				fo := options.Find()
-				qo := args[1].(*QueryOpts)
-				if qo.Skip != nil {
-					val := qo.Skip.Value()
-					fo = fo.SetSkip(int64(val.(int)))
+				if options.Limit != -1 {
+					dbFindOptions = dbFindOptions.SetLimit(options.Limit)
 				}
-				if qo.Limit != nil {
-					val := qo.Limit.Value()
-					fo = fo.SetLimit(int64(val.(int)))
-				}
-
-				filterObject := args[0]
 				filter := make(bson.M)
-				err := flattenObject(filterObject, filter, "state.")
+				err := flattenObject(filterValue, filter, "state.")
 				if err != nil {
 					return nil, err
 				}
-
-				cursor, err := ent.workingRecord.Find(context.TODO(), filter, fo)
+				cursor, err := es.projection.Find(context.TODO(), filter, dbFindOptions)
 				if err != nil {
 					return nil, err
 				}
-
-				var results []entityState
+				var results []EntityState
 				if err = cursor.All(context.TODO(), &results); err != nil {
 					return nil, err
 				}
-
-				iter := symbols.NewIterable(EntityInstance{ParentType: ent}, len(results))
-				for idx, result := range results {
-					bytes, err := bson.MarshalExtJSON(result.State, false, true)
+				instanceType := EntityInstance{entityFactory: es}
+				arr := symbols.NewArray(instanceType, len(results))
+				for idx, item := range results {
+					instanceValue, err := item.EntityInstance(es)
 					if err != nil {
 						return nil, err
 					}
-					genericObject, err := symbols.FromBytes(bytes)
-					if err != nil {
-						return nil, err
-					}
-					obj, err := symbols.Construct(ent, genericObject)
-					if err != nil {
-						return nil, err
-					}
-					if entType, ok := obj.(*EntityType); ok {
-						iter.Items[idx] = EntityInstance{
-							ParentType: ent,
-							entId:      result.EntityID,
-							fields:     entType.Fields,
-						}
-					} else {
-						return nil, fmt.Errorf("expected entity type")
-					}
+					arr.Set(idx, instanceValue)
 				}
-				return iter, nil
+				return arr, nil
 			},
 		}),
 		"findOne": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				symbols.NewPartialObject(ent),
-				QueryOpts{},
+				es.entityType,
+				QueryOptions,
 			},
-			Returns: EntityInstance{ParentType: ent},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if ent.eventLog == nil {
-					return nil, fmt.Errorf("db connection not initialized")
+			Returns: EntityInstance{entityFactory: es},
+			Handler: func(filterValue *EntityValue, options QueryOptionsValue) (*EntityInstanceValue, error) {
+				dbFindOptions := mongoOptions.FindOne()
+				if options.Skip != -1 {
+					dbFindOptions = dbFindOptions.SetSkip(options.Skip)
 				}
-				fo := options.FindOne()
-				qo := args[1].(*QueryOpts)
-				if qo.Skip != nil {
-					val := qo.Skip.Value()
-					fo = fo.SetSkip(val.(int64))
-				}
-
-				filterObject := args[0]
 				filter := make(bson.M)
-				err := flattenObject(filterObject, filter, "state.")
+				err := flattenObject(filterValue, filter, "state.")
 				if err != nil {
 					return nil, err
 				}
-
-				var result entityState
-				err = ent.workingRecord.FindOne(context.TODO(), filter, fo).Decode(&result)
+				var result EntityState
+				err = es.projection.FindOne(context.TODO(), filter, dbFindOptions).Decode(&result)
 				if err != nil {
 					if err == mongo.ErrNoDocuments {
-						return nil, symbols.Error{
+						return nil, symbols.ErrorValue{
 							Name:    "NotFound",
 							Message: "no matching entities",
 						}
 					}
 					return nil, err
 				}
-
-				bytes, err := bson.MarshalExtJSON(result.State, false, true)
-				if err != nil {
-					return nil, err
-				}
-				genericObject, err := symbols.FromBytes(bytes)
-				if err != nil {
-					return nil, err
-				}
-				obj, err := symbols.Construct(ent, genericObject)
-				if err != nil {
-					return nil, fmt.Errorf("cannot construct entity from db record: %s", err.Error())
-				}
-
-				if insObj, ok := obj.(*EntityType); ok {
-					return EntityInstance{
-						ParentType: ent,
-						entId:      result.EntityID,
-						fields:     insObj.Fields,
-					}, nil
-				} else {
-					return nil, fmt.Errorf("expected entity type")
-				}
+				return result.EntityInstance(es)
 			},
 		}),
 		"insert": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				ent,
+				es.entityType,
 			},
-			Returns: EntityInstance{ParentType: ent},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if ent.eventLog == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				passedEnt, ok := args[0].(*EntityType)
-				if !ok {
-					return nil, fmt.Errorf("expected entity type")
-				}
-				state := stateEvent{
+			Returns: EntityInstance{entityFactory: es},
+			Handler: func(stateValue *EntityValue) (*EntityInstanceValue, error) {
+				state := EntityStateEvent{
 					EntityID:  strconv.Itoa(seededRand.Int())[0:12],
 					Timestamp: time.Now(),
-					Effect:    effectTypeCreate,
-					State:     passedEnt.Value(),
+					Effect:    EffectTypeCreate,
+					State:     stateValue.Value(),
 				}
-				if _, err := ent.eventLog.InsertOne(context.TODO(), state); err != nil {
+				if _, err := es.eventLog.InsertOne(context.TODO(), state); err != nil {
 					return nil, err
 				}
-				return EntityInstance{ParentType: ent, entId: state.EntityID, fields: passedEnt.Fields}, nil
+				return state.EntityInstance(es)
 			},
 		}),
 	}
-	return methods[key], nil
+	return &descriptors
 }
 
-func (ent Entity) ObjectClassFromNode(ctx *langCtx.Context, node ast.ContextObject) (symbols.Class, error) {
-	assumedType, err := (langCtx.TypeInterface{}).ObjectClassFromNode(ctx, node)
-	if err != nil {
-		return nil, err
-	}
-	if typeClass, ok := assumedType.(symbols.Type); ok {
-		return &Entity{
-			ParentType: typeClass,
-			methods:    make(map[effectType]symbols.Function),
-		}, nil
-	} else {
-		return nil, fmt.Errorf("expected type class")
-	}
-}
-
-func (ent *Entity) AddMethod(ctx *langCtx.Context, node ast.ContextObjectMethod) error {
-	var targetEffect effectType
-	switch node.Name {
-	case "onCreate":
-		targetEffect = effectTypeCreate
-		if len(node.Block.Parameters.Arguments.Items) != 1 {
-			return symbols.NodeError(node.Block.Parameters.Arguments, "onCreate method must have one argument")
-		}
-	case "onUpdate":
-		targetEffect = effectTypeUpdate
-		if len(node.Block.Parameters.Arguments.Items) != 2 {
-			return symbols.NodeError(node.Block.Parameters.Arguments, "onUpdate method must have two arguments")
-		}
-	case "onDelete":
-		targetEffect = effectTypeDelete
-		if len(node.Block.Parameters.Arguments.Items) != 1 {
-			return symbols.NodeError(node.Block.Parameters.Arguments, "onDelete method must have one argument")
-		}
-	default:
-		return symbols.NodeError(node, "method %s not allowed on %s", node.Name, ent.ParentType.Name)
-	}
-	if _, ok := ent.methods[targetEffect]; ok {
-		return symbols.NodeError(node, "method %s already defined for %s", node.Name, ent.ParentType.Name)
-	}
-	if node.Block.Parameters.ReturnType != nil {
-		return symbols.NodeError(node, "method %s must not have a return type", node.Name)
-	}
-	table := ctx.Symbols()
-	for _, arg := range node.Block.Parameters.Arguments.Items {
-		if argExpr, ok := arg.(ast.ArgumentItem); ok {
-			class, err := table.ResolveTypeExpression(argExpr.Init)
-			if err != nil {
-				return err
-			}
-			if !symbols.ClassEquals(class, ent) {
-				return symbols.NodeError(argExpr, "method %s argument must be equal to target type", node.Name)
-			}
-		} else {
-			return symbols.NodeError(argExpr, "method %s argument must be equal to target type", node.Name)
-		}
-	}
-	fn, err := table.ResolveFunctionBlock(node.Block, &symbols.MapObject{})
-	if err != nil {
-		return err
-	}
-	ent.methods[targetEffect] = *fn
-	return nil
-}
-
-func (ent Entity) Export() (symbols.Object, error) {
-	return ent.ParentType, nil
-}
-
-func (ent Entity) iterateChangeStream(routineCtx context.Context, stream *mongo.ChangeStream) {
+// This acts as the updater between the event log and the projection.
+func (es EntityStore) iterateChangeStream(routineCtx context.Context, stream *mongo.ChangeStream) {
 	defer stream.Close(routineCtx)
 	for stream.Next(routineCtx) {
-		var event updateEvent
+		var event EntityStateInsertEvent
 		if err := stream.Decode(&event); err != nil {
-			log.Output(log.LoggerMessage{
-				LogLevel: log.LevelERROR,
-				Signal:   EntityStreamSignal,
-				Message:  err.Error(),
-				Data:     event,
-			})
-			continue
+			panic(err)
 		}
-
-		reportDatabaseError := func(err error, effect effectType) {
-			log.Output(log.LoggerMessage{
-				LogLevel: log.LevelERROR,
-				Signal:   EntityCollectionSignal,
-				Message:  "database operation encountered an error",
-				Data: log.LogData{
-					"err":        err.Error(),
-					"db":         ent.workingRecord.Name(),
-					"collection": ent.workingRecord.Database().Name(),
-					"effect":     effect,
-				},
-			})
-		}
-		reportMethodError := func(err error, method effectType) {
-			log.Output(log.LoggerMessage{
-				LogLevel: log.LevelERROR,
-				Signal:   EntityMethodSignal,
-				Message:  "entity method handler failed invocation",
-				Data: log.LogData{
-					"err":    err.Error(),
-					"entity": ent.ParentType.Name,
-					"method": method,
-				},
-			})
-		}
-		reportStreamError := func(err error, method effectType) {
-			log.Output(log.LoggerMessage{
-				LogLevel: log.LevelERROR,
-				Signal:   EntityMethodSignal,
-				Message:  "entity stream failed to marshal object",
-				Data: log.LogData{
-					"err":    err.Error(),
-					"entity": ent.ParentType.Name,
-					"method": method,
-				},
-			})
-		}
-
 		switch event.FullDocument.Effect {
-		case effectTypeCreate:
-			_, err := ent.workingRecord.InsertOne(routineCtx, entityState{
+		case EffectTypeCreate:
+			// Create a new working record
+			state := EntityState{
 				EntityID:  event.FullDocument.EntityID,
 				CreatedAt: event.FullDocument.Timestamp,
 				UpdatedAt: event.FullDocument.Timestamp,
 				State:     event.FullDocument.State,
-			})
-			if err != nil {
-				reportDatabaseError(err, effectTypeCreate)
-				continue
 			}
-			if fn, ok := ent.methods[effectTypeCreate]; ok {
-				obj, err := event.FullDocument.EntityInstance(ent)
+			_, err := es.projection.InsertOne(routineCtx, state)
+			if err != nil {
+				panic(err)
+			}
+			if fn, ok := es.methods[EffectTypeCreate]; ok {
+				value, err := state.EntityInstance(es)
 				if err != nil {
-					reportStreamError(err, effectTypeCreate)
-					continue
+					panic(err)
 				}
-				_, err = fn.Call([]symbols.ValueObject{obj}, &symbols.MapObject{})
+				_, err = fn.Call(value)
 				if err != nil {
-					reportMethodError(err, effectTypeCreate)
-					continue
+					panic(err)
 				}
 			}
-		case effectTypeUpdate:
-			filter := entityState{EntityID: event.FullDocument.EntityID}
-
-			var oldState entityState
-			err := ent.workingRecord.FindOne(routineCtx, filter).Decode(&oldState)
-			if err != nil {
-				reportDatabaseError(err, effectTypeUpdate)
-				continue
+		case EffectTypeUpdate:
+			// Update the working record
+			filter := EntityState{EntityID: event.FullDocument.EntityID}
+			updateMethod, hasUpdateMethod := es.methods[EffectTypeUpdate]
+			var currentState EntityState
+			if hasUpdateMethod {
+				err := es.projection.FindOne(routineCtx, filter).Decode(&currentState)
+				if err != nil {
+					panic(err)
+				}
 			}
-
-			var newState entityState
-			err = ent.workingRecord.FindOneAndUpdate(routineCtx, filter, bson.M{
-				"$set": entityState{
+			_, err := es.projection.UpdateOne(routineCtx, filter, bson.M{
+				"$set": EntityState{
 					UpdatedAt: event.FullDocument.Timestamp,
 					State:     event.FullDocument.State,
 				},
-			}).Decode(&newState)
+			})
 			if err != nil {
-				reportDatabaseError(err, effectTypeUpdate)
-				continue
+				panic(err)
 			}
-
-			if fn, ok := ent.methods[effectTypeUpdate]; ok {
-				old, err := oldState.EntityInstance(ent)
+			if hasUpdateMethod {
+				currentInstance, err := currentState.EntityInstance(es)
 				if err != nil {
-					reportStreamError(err, effectTypeUpdate)
-					continue
+					panic(err)
 				}
-				new, err := newState.EntityInstance(ent)
+				newInstance, err := event.FullDocument.EntityInstance(es)
 				if err != nil {
-					reportStreamError(err, effectTypeUpdate)
-					continue
+					panic(err)
 				}
-				_, err = fn.Call([]symbols.ValueObject{old, new}, &symbols.MapObject{})
+				_, err = updateMethod.Call(currentInstance, newInstance)
 				if err != nil {
-					reportMethodError(err, effectTypeUpdate)
-					continue
+					panic(err)
 				}
 			}
-		case effectTypeDelete:
-			res := ent.workingRecord.FindOneAndDelete(routineCtx, entityState{EntityID: event.FullDocument.EntityID})
-			if res.Err() != nil {
-				reportDatabaseError(res.Err(), effectTypeDelete)
-				continue
+		case EffectTypeDelete:
+			// Delete the working record
+			_, err := es.projection.DeleteOne(routineCtx, EntityState{
+				EntityID: event.FullDocument.EntityID,
+			})
+			if err != nil {
+				panic(err)
 			}
-			if fn, ok := ent.methods[effectTypeDelete]; ok {
-				var entityState entityState
-				if err := res.Decode(&entityState); err != nil {
-					reportStreamError(err, effectTypeDelete)
-					continue
-				}
-				obj, err := entityState.EntityInstance(ent)
+			if fn, ok := es.methods[EffectTypeDelete]; ok {
+				value, err := event.FullDocument.EntityInstance(es)
 				if err != nil {
-					reportStreamError(err, effectTypeDelete)
-					continue
+					panic(err)
 				}
-				_, err = fn.Call([]symbols.ValueObject{obj}, &symbols.MapObject{})
+				_, err = fn.Call(value)
 				if err != nil {
-					reportMethodError(err, effectTypeDelete)
-					continue
+					panic(err)
 				}
 			}
 		}
 	}
 }
 
-func (ent *Entity) Attach(process *runtime.Process) error {
-	return nil
-}
-func (ent *Entity) AttachResource(process *runtime.Process) error {
+func (es *EntityStore) Attach(process *runtime.Process) error {
 	var conn resource.MongoConnection
 	err := process.Resource("mdb", &conn)
 	if err != nil {
 		return err
 	}
-	dbName := strings.Replace(process.Context.Name, ".", "_", -1)
-	workingRecord, err := conn.EnsureCollection(dbName, ent.ParentType.Name)
+	dbName := strings.Replace(process.Context.Identifier, ".", "_", -1)
+	es.eventLog, err = conn.EnsureCollection(dbName, fmt.Sprintf("%s_events", es.entityType.Name))
 	if err != nil {
 		return err
 	}
-	eventLog, err := conn.EnsureCollection(dbName, fmt.Sprintf("%s_EventLog", ent.ParentType.Name))
+	es.projection, err = conn.EnsureCollection(dbName, fmt.Sprintf("%s_projection", es.entityType.Name))
 	if err != nil {
 		return err
 	}
-
-	log.Printf(
-		log.LevelDEBUG,
-		EntityCollectionSignal,
-		"entity collections \"%s:%s\" created",
-		dbName,
-		ent.ParentType.Name,
-	)
-
-	ent.workingRecord = workingRecord
-	ent.eventLog = eventLog
-
-	pipeline := bson.D{{
-		Key: "$match",
-		Value: bson.D{{
-			Key:   "operationType",
-			Value: "insert",
+	pipeline := mongo.Pipeline{
+		{{
+			Key:   "$match",
+			Value: bson.D{{Key: "operationType", Value: "insert"}},
 		}},
-	}}
-
-	csOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup)
-	stream, err := ent.eventLog.Watch(context.TODO(), mongo.Pipeline{pipeline}, csOpts)
+	}
+	streamOptions := mongoOptions.ChangeStream().SetFullDocument(mongoOptions.UpdateLookup)
+	stream, err := es.eventLog.Watch(context.Background(), pipeline, streamOptions)
 	if err != nil {
 		return err
 	}
-
 	routineCtx, cancel := context.WithCancel(context.Background())
-	go ent.iterateChangeStream(routineCtx, stream)
-	ent.cancelStream = cancel
-
-	log.Printf(
-		log.LevelDEBUG,
-		EntityStreamSignal,
-		"entity stream \"%s:%s\" started",
-		dbName,
-		eventLog.Name(),
-	)
-
+	es.cancelStream = cancel
+	go es.iterateChangeStream(routineCtx, stream)
 	return nil
 }
-func (ent *Entity) Detach() error {
-	if ent.cancelStream != nil {
-		ent.cancelStream()
+func (es *EntityStore) Detach() error {
+	es.cancelStream()
+	es.eventLog = nil
+	es.projection = nil
+	return nil
+}
+
+type Entity struct {
+	Name       string
+	Private    bool
+	Comment    string
+	Properties map[string]symbols.Class
+}
+
+func (ent Entity) Descriptors() *symbols.ClassDescriptors {
+	propertyMap := make(symbols.ClassPropertyMap)
+	for name, class := range ent.Properties {
+		propertyMap[name] = symbols.PropertyAttributes(symbols.PropertyOptions{
+			Class: class,
+			Getter: func(val *EntityValue) (symbols.ValueObject, error) {
+				return val.data[name], nil
+			},
+			Setter: func(val *EntityValue, newPropertyValue symbols.ValueObject) error {
+				val.data[name] = newPropertyValue
+				return nil
+			},
+		})
 	}
-	return nil
+	return &symbols.ClassDescriptors{
+		Name:       ent.Name,
+		Properties: propertyMap,
+	}
 }
 
-type EntityType struct {
-	ParentType Entity
-	Fields     map[string]symbols.ValueObject `hash:"ignore"`
+type EntityValue struct {
+	entityType Entity
+	data       map[string]symbols.ValueObject
 }
 
-func (tp EntityType) Class() symbols.Class {
-	return tp.ParentType
+func (eo EntityValue) Class() symbols.Class {
+	return eo.entityType
 }
-func (tp EntityType) Value() interface{} {
+func (eo EntityValue) Value() interface{} {
 	out := make(map[string]interface{})
-	for k, v := range tp.Fields {
+	for k, v := range eo.data {
 		out[k] = v.Value()
 	}
 	return out
-}
-
-func (tp *EntityType) Set(key string, obj symbols.ValueObject) error {
-	tp.Fields[key] = obj
-	return nil
-}
-func (tp EntityType) Get(key string) (symbols.Object, error) {
-	return tp.Fields[key], nil
 }
 
 type EntityInstance struct {
-	ParentType Entity
-	entId      string                         `hash:"ignore"`
-	fields     map[string]symbols.ValueObject `hash:"ignore"`
+	entityFactory EntityStore
 }
 
-func (ins EntityInstance) ClassName() string {
-	return fmt.Sprintf("[%s]", ins.ParentType.ClassName())
-}
-func (ins EntityInstance) Fields() map[string]symbols.Class {
-	return ins.ParentType.Fields()
-}
-func (ins EntityInstance) Constructors() symbols.ConstructorMap {
-	return symbols.NewConstructorMap()
+func (ei EntityInstance) Descriptors() *symbols.ClassDescriptors {
+	propertyMap := make(symbols.ClassPropertyMap)
+	for name, class := range ei.entityFactory.entityType.Properties {
+		propertyMap[name] = symbols.PropertyAttributes(symbols.PropertyOptions{
+			Class: class,
+			Getter: func(obj *EntityInstanceValue) (symbols.ValueObject, error) {
+				return obj.data[name], nil
+			},
+		})
+	}
+	return &symbols.ClassDescriptors{
+		Name: fmt.Sprintf("[%s]", ei.entityFactory.entityType.Name),
+		Prototype: symbols.ClassPrototypeMap{
+			"update": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class: ei,
+				Arguments: []symbols.Class{
+					ei.entityFactory.entityType,
+				},
+				Returns: nil,
+				Handler: func(instanceValue *EntityInstanceValue, updatedValue EntityValue) error {
+					state := EntityStateEvent{
+						EntityID:  instanceValue.entityID,
+						Timestamp: time.Now(),
+						Effect:    EffectTypeUpdate,
+						State:     updatedValue,
+					}
+					if _, err := instanceValue.instanceType.entityFactory.eventLog.InsertOne(context.TODO(), state); err != nil {
+						return err
+					}
+					instanceValue.data = updatedValue.data
+					return nil
+				},
+			}),
+			"delete": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     ei,
+				Arguments: []symbols.Class{},
+				Returns:   nil,
+				Handler: func(instanceValue *EntityInstanceValue) error {
+					state := EntityStateEvent{
+						EntityID:  instanceValue.entityID,
+						Timestamp: time.Now(),
+						Effect:    EffectTypeDelete,
+					}
+					if _, err := instanceValue.instanceType.entityFactory.eventLog.InsertOne(context.TODO(), state); err != nil {
+						return err
+					}
+					return nil
+				},
+			}),
+		},
+		Properties: propertyMap,
+	}
 }
 
-func (ins EntityInstance) Class() symbols.Class {
-	return ins
+type EntityInstanceValue struct {
+	instanceType EntityInstance
+	entityID     string
+	data         map[string]symbols.ValueObject
 }
-func (ins EntityInstance) Value() interface{} {
+
+func (eio EntityInstanceValue) Class() symbols.Class {
+	return eio.instanceType
+}
+func (eio EntityInstanceValue) Value() interface{} {
 	out := make(map[string]interface{})
-	for k, v := range ins.fields {
+	for k, v := range eio.data {
 		out[k] = v.Value()
 	}
-	out["$entity"] = ins.entId
+	out["$entity"] = eio.entityID
 	return out
 }
-func (ins EntityInstance) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, obj)
-}
-func (ins EntityInstance) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
-		"update": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{ins.ParentType},
-			Returns:   ins,
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if ins.ParentType.eventLog == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				ent := args[0].(*EntityType)
-				state := stateEvent{
-					EntityID:  ins.entId,
-					Timestamp: time.Now(),
-					Effect:    effectTypeUpdate,
-					State:     ent.Value(),
-				}
-				if _, err := ins.ParentType.eventLog.InsertOne(context.TODO(), state); err != nil {
-					return nil, err
-				}
-				ins.fields = ent.Fields
-				return ins, nil
-			},
-		}),
-		"delete": symbols.NewFunction(symbols.FunctionOptions{
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if ins.ParentType.eventLog == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				state := stateEvent{
-					EntityID:  ins.entId,
-					Timestamp: time.Now(),
-					Effect:    effectTypeDelete,
-					State:     nil,
-				}
-				if _, err := ins.ParentType.eventLog.InsertOne(context.TODO(), state); err != nil {
-					return nil, err
-				}
-				return nil, nil
-			},
-		}),
-	}
-	if fn := methods[key]; fn != nil {
-		return fn, nil
-	}
-	return ins.fields[key], nil
-}
 
-type effectType string
+// Represents the different operations that can be performed on an entity
+type EffectType string
 
 const (
-	effectTypeCreate effectType = "CREATE"
-	effectTypeUpdate effectType = "UPDATE"
-	effectTypeDelete effectType = "DELETE"
+	EffectTypeCreate EffectType = "CREATE"
+	EffectTypeUpdate            = "UPDATE"
+	EffectTypeDelete            = "DELETE"
 )
 
-func constructEntityFromInterface(ent Entity, state interface{}) (*EntityType, error) {
+func unmarshalEntityToInstanceValue(entityFactory EntityStore, entityID string, state interface{}) (*EntityInstanceValue, error) {
+	instanceType := EntityInstance{entityFactory: entityFactory}
 	bytes, err := bson.MarshalExtJSON(state, false, true)
 	if err != nil {
 		return nil, err
 	}
-	generic, err := symbols.FromBytes(bytes)
+	stateValue, err := symbols.ValueFromBytes(bytes)
 	if err != nil {
 		return nil, err
 	}
-	obj, err := symbols.Construct(ent, generic)
+	constructedStateValue, err := symbols.Construct(instanceType, stateValue)
 	if err != nil {
 		return nil, err
 	}
-	return obj.(*EntityType), nil
-}
-
-// Represents the internal type of the event change in the database
-type stateEvent struct {
-	NodeID    string      `bson:"node_id,omitempty"`
-	EventID   string      `bson:"event_id,omitempty"`
-	EntityID  string      `bson:"entity_id,omitempty"`
-	Timestamp time.Time   `bson:"timestamp,omitempty"`
-	Effect    effectType  `bson:"effect,omitempty"`
-	State     interface{} `bson:"state,omitempty"`
-}
-
-func (ev stateEvent) EntityInstance(ent Entity) (EntityInstance, error) {
-	entType, err := constructEntityFromInterface(ent, ev.State)
-	if err != nil {
-		return EntityInstance{}, err
-	}
-	return EntityInstance{
-		ParentType: ent,
-		entId:      ev.EntityID,
-		fields:     entType.Fields,
+	return &EntityInstanceValue{
+		instanceType: instanceType,
+		entityID:     entityID,
+		data:         constructedStateValue.(EntityValue).data,
 	}, nil
 }
 
-// Represents the type exposed by a change stream event in mongo
-type updateEvent struct {
-	FullDocument stateEvent `bson:"fullDocument"`
-}
-
-// Represents the internal type of the event state in the databsae
-type entityState struct {
-	ObjectID  *primitive.ObjectID `bson:"_id,omitempty"`
-	CreatedAt time.Time           `bson:"created_at,omitempty"`
-	UpdatedAt time.Time           `bson:"updated_at,omitempty"`
+// Represents the internal model of the entity event log
+type EntityStateEvent struct {
+	RecordID  *primitive.ObjectID `bson:"_id,omitempty"`
 	EntityID  string              `bson:"entity_id,omitempty"`
+	Timestamp time.Time           `bson:"timestamp,omitempty"`
+	Effect    EffectType          `bson:"esfect,omitempty"`
 	State     interface{}         `bson:"state,omitempty"`
 }
 
-func (st entityState) EntityInstance(ent Entity) (EntityInstance, error) {
-	entType, err := constructEntityFromInterface(ent, st.State)
-	if err != nil {
-		return EntityInstance{}, err
-	}
-	return EntityInstance{
-		ParentType: ent,
-		entId:      st.EntityID,
-		fields:     entType.Fields,
-	}, nil
+func (es EntityStateEvent) EntityInstance(entityFactory EntityStore) (*EntityInstanceValue, error) {
+	return unmarshalEntityToInstanceValue(entityFactory, es.EntityID, es.State)
+}
+
+// Represents the internal model of the working record
+type EntityState struct {
+	RecordID  *primitive.ObjectID `bson:"_id,omitempty"`
+	EntityID  string              `bson:"entity_id,omitempty"`
+	CreatedAt time.Time           `bson:"created_at,omitempty"`
+	UpdatedAt time.Time           `bson:"updated_at,omitempty"`
+	State     interface{}         `bson:"state,omitempty"`
+}
+
+func (es EntityState) EntityInstance(entityFactory EntityStore) (*EntityInstanceValue, error) {
+	return unmarshalEntityToInstanceValue(entityFactory, es.EntityID, es.State)
+}
+
+// Represents the event given from the database change stream when an entity state event is inserted
+type EntityStateInsertEvent struct {
+	FullDocument EntityStateEvent `bson:"fullDocument"`
 }

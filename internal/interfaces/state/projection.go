@@ -1,420 +1,357 @@
 package state
 
 import (
-	ctx "context"
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/hntrl/hyper/internal/ast"
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/interfaces/stream"
 	"github.com/hntrl/hyper/internal/runtime"
 	"github.com/hntrl/hyper/internal/runtime/log"
 	"github.com/hntrl/hyper/internal/runtime/resource"
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 
 	"github.com/nats-io/nats.go"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	mongoOptions "go.mongodb.org/mongo-driver/mongo/options"
 )
-
-type Projection struct {
-	ParentType symbols.Type
-	events     map[*stream.Event]*symbols.Function `hash:"ignore"`
-	collection *mongo.Collection                   `hash:"ignore"`
-}
 
 var ProjectionSignal = log.Signal("PROJECTION")
 var ProjectionEventSignal = log.Signal("PROJECTION_EVENT")
 
-func (proj Projection) ClassName() string {
-	return "Projection"
-}
-func (proj Projection) Fields() map[string]symbols.Class {
-	return proj.ParentType.Fields()
-}
-func (proj Projection) Constructors() symbols.ConstructorMap {
-	csMap := symbols.NewConstructorMap()
-	csMap.AddConstructor(ProjectionRecord{parentType: proj}, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
-		rec := obj.(ProjectionRecord)
-		return &ProjectionType{proj, rec.fields}, nil
-	})
-	csMap.AddGenericConstructor(proj, func(fields map[string]symbols.ValueObject) (symbols.ValueObject, error) {
-		return &ProjectionType{proj, fields}, nil
-	})
-	return csMap
+type ProjectionInterface struct{}
+
+func (ProjectionInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*domain.ContextItem, error) {
+	table := ctx.Symbols()
+	proj := Projection{
+		Name:       node.Name,
+		Private:    node.Private,
+		Comment:    node.Comment,
+		Properties: make(map[string]symbols.Class),
+	}
+	if node.Extends != nil {
+		extendedType, err := table.ResolveSelector(*node.Extends)
+		if err != nil {
+			return nil, err
+		}
+		extendedTypeClass, ok := extendedType.(symbols.Class)
+		if !ok {
+			return nil, errors.NodeError(node.Extends, 0, "cannot extend %T", extendedType)
+		}
+		properties := extendedTypeClass.Descriptors().Properties
+		if properties == nil {
+			return nil, errors.NodeError(node.Extends, 0, "cannot extend %s", extendedTypeClass.Descriptors().Name)
+		}
+		for k, v := range properties {
+			proj.Properties[k] = v.PropertyClass
+		}
+	}
+	for _, item := range node.Fields {
+		switch field := item.Init.(type) {
+		case ast.FieldExpression:
+			class, err := table.EvaluateTypeExpression(field.Init)
+			if err != nil {
+				return nil, err
+			}
+			proj.Properties[field.Name] = class
+		default:
+			return nil, errors.NodeError(field, 0, "%T not allowed in projection", item)
+		}
+	}
+	store := ProjectionStore{
+		projectionType: proj,
+		events:         make(map[*stream.Event]symbols.Callable),
+	}
+	if !node.Private {
+		return &domain.ContextItem{
+			HostItem:   store,
+			RemoteItem: proj,
+		}, nil
+	} else {
+		return &domain.ContextItem{
+			HostItem:   store,
+			RemoteItem: nil,
+		}, nil
+	}
 }
 
-func (proj Projection) Class() symbols.Class {
-	return proj
+type ProjectionStore struct {
+	projectionType Projection
+	collection     *mongo.Collection                  `hash:"ignore"`
+	events         map[*stream.Event]symbols.Callable `hash:"ignore"`
 }
-func (proj Projection) Value() interface{} {
-	return nil
-}
-func (proj Projection) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, proj)
-}
-func (proj Projection) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
+
+func (ps ProjectionStore) Descriptors() *symbols.ClassDescriptors {
+	descriptors := *ps.projectionType.Descriptors()
+	projectionRecordType := ProjectionRecord{projectionStore: ps}
+	descriptors.ClassProperties = symbols.ClassObjectPropertyMap{
 		"find": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				symbols.NewPartialObject(proj),
-				QueryOpts{},
+				ps.projectionType,
+				QueryOptions,
 			},
-			Returns: symbols.Iterable{
-				ParentType: ProjectionRecord{parentType: proj},
-				Items:      []symbols.ValueObject{},
-			},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if proj.collection == nil {
-					return nil, fmt.Errorf("db connection not initialized")
+			Returns: symbols.NewArrayClass(projectionRecordType),
+			Handler: func(filterValue *ProjectionValue, options QueryOptionsValue) (*symbols.ArrayValue, error) {
+				dbFindOptions := mongoOptions.Find()
+				if options.Skip != -1 {
+					dbFindOptions = dbFindOptions.SetSkip(options.Skip)
 				}
-				fo := options.Find()
-				qo := args[1].(*QueryOpts)
-				if qo.Skip != nil {
-					val := qo.Skip.Value()
-					fo = fo.SetSkip(int64(val.(int)))
-				}
-				if qo.Limit != nil {
-					val := qo.Limit.Value()
-					fo = fo.SetLimit(int64(val.(int)))
+				if options.Limit != -1 {
+					dbFindOptions = dbFindOptions.SetLimit(options.Limit)
 				}
 
-				filterObject := args[0]
 				filter := make(bson.M)
-				err := flattenObject(filterObject, filter, "")
+				err := flattenObject(filterValue, filter, "")
+				if err != nil {
+					return nil, err
+				}
+				cursor, err := ps.collection.Find(context.TODO(), filter, dbFindOptions)
 				if err != nil {
 					return nil, err
 				}
 
-				cursor, err := proj.collection.Find(ctx.TODO(), filter, fo)
-				if err != nil {
-					return nil, err
-				}
-
-				itemIdx := 0
-				iter := symbols.NewIterable(proj.ParentType, cursor.RemainingBatchLength())
-
-				for cursor.Next(ctx.TODO()) {
+				cursorIndex := 0
+				arr := symbols.NewArray(projectionRecordType, cursor.RemainingBatchLength())
+				for cursor.Next(context.TODO()) {
 					var record bson.M
 					err := cursor.Decode(&record)
 					if err != nil {
 						return nil, err
 					}
-
-					bytes, err := bson.MarshalExtJSON(cursor.Current, false, true)
+					bytes, err := bson.MarshalExtJSON(record, false, true)
 					if err != nil {
 						return nil, err
 					}
-					genericObject, err := symbols.FromBytes(bytes)
+					recordValue, err := symbols.ValueFromBytes(bytes)
 					if err != nil {
 						return nil, err
 					}
-					obj, err := symbols.Construct(proj, genericObject)
+					constructedRecordValue, err := symbols.Construct(ps.projectionType, recordValue)
 					if err != nil {
 						return nil, err
 					}
-					if typeObject, ok := obj.(*ProjectionType); ok {
-						if recordId, ok := record["_id"].(primitive.ObjectID); ok {
-							iter.Items[itemIdx] = ProjectionRecord{
-								parentType: proj,
-								recordId:   recordId,
-								fields:     typeObject.fields,
-							}
-							itemIdx++
-						} else {
-							return nil, fmt.Errorf("projection record has no identifier")
-						}
-					} else {
-						return nil, fmt.Errorf("expected projection type")
-					}
+					recordID := cursor.Current.Lookup("_id").ObjectID()
+					arr.Set(cursorIndex, ProjectionRecordValue{
+						projectionRecordType: projectionRecordType,
+						recordID:             &recordID,
+						data:                 constructedRecordValue.(*ProjectionValue).data,
+					})
+					cursorIndex++
 				}
-				return iter, nil
+				return arr, nil
 			},
 		}),
 		"findOne": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				symbols.NewPartialObject(proj),
-				QueryOpts{},
+				ps.projectionType,
+				QueryOptions,
 			},
-			Returns: ProjectionRecord{parentType: proj},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if proj.collection == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				fo := options.FindOne()
-				qo := args[1].(*QueryOpts)
-				if qo.Skip != nil {
-					val := qo.Skip.Value()
-					fo = fo.SetSkip(val.(int64))
+			Returns: projectionRecordType,
+			Handler: func(filterValue *ProjectionValue, options QueryOptionsValue) (*ProjectionRecordValue, error) {
+				dbFindOptions := mongoOptions.FindOne()
+				if options.Skip != -1 {
+					dbFindOptions = dbFindOptions.SetSkip(options.Skip)
 				}
 
-				filterObject := args[0]
 				filter := make(bson.M)
-				err := flattenObject(filterObject, filter, "")
+				err := flattenObject(filterValue, filter, "")
 				if err != nil {
 					return nil, err
 				}
 
 				var record bson.M
-				res := proj.collection.FindOne(ctx.TODO(), filter, fo)
-				err = res.Decode(&record)
+				err = ps.collection.FindOne(context.TODO(), filter, dbFindOptions).Decode(&record)
 				if err != nil {
-					if err == mongo.ErrNoDocuments {
-						return nil, fmt.Errorf("no matching documents")
-					}
 					return nil, err
 				}
-
 				bytes, err := bson.MarshalExtJSON(record, false, true)
 				if err != nil {
 					return nil, err
 				}
-				genericObject, err := symbols.FromBytes(bytes)
+				recordValue, err := symbols.ValueFromBytes(bytes)
 				if err != nil {
 					return nil, err
 				}
-				obj, err := symbols.Construct(proj, genericObject)
+				constructedRecordValue, err := symbols.Construct(ps.projectionType, recordValue)
 				if err != nil {
 					return nil, err
 				}
-				if typeObject, ok := obj.(*ProjectionType); ok {
-					if recordId, ok := record["_id"].(primitive.ObjectID); ok {
-						return ProjectionRecord{
-							parentType: proj,
-							recordId:   recordId,
-							fields:     typeObject.fields,
-						}, nil
-					} else {
-						return nil, fmt.Errorf("projection record has no identifier")
-					}
-				} else {
-					return nil, fmt.Errorf("expected projection type")
-				}
+				recordID := record["_id"].(primitive.ObjectID)
+				return &ProjectionRecordValue{
+					projectionRecordType: projectionRecordType,
+					recordID:             &recordID,
+					data:                 constructedRecordValue.(*ProjectionValue).data,
+				}, nil
 			},
 		}),
 		"insert": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				proj,
+				ps.projectionType,
 			},
-			Returns: ProjectionRecord{parentType: proj},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if proj.collection == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				passedType, ok := args[0].(*ProjectionType)
-				if !ok {
-					return nil, fmt.Errorf("expected entity type")
-				}
-				res, err := proj.collection.InsertOne(ctx.TODO(), passedType.Value())
+			Returns: projectionRecordType,
+			Handler: func(projectionValue *ProjectionValue) (*ProjectionRecordValue, error) {
+				res, err := ps.collection.InsertOne(context.TODO(), projectionValue.Value())
 				if err != nil {
 					return nil, err
 				}
-				if id, ok := res.InsertedID.(primitive.ObjectID); ok {
-					return ProjectionRecord{parentType: proj, recordId: id, fields: passedType.fields}, nil
-				} else {
-					return nil, fmt.Errorf("returned record did not have identifier")
-				}
+				recordID := res.InsertedID.(primitive.ObjectID)
+				return &ProjectionRecordValue{
+					projectionRecordType: projectionRecordType,
+					recordID:             &recordID,
+					data:                 projectionValue.data,
+				}, nil
 			},
 		}),
 	}
-	return methods[key], nil
+	return &descriptors
 }
 
-func (proj *Projection) Attach(process *runtime.Process) error {
-	return nil
-}
-func (proj *Projection) AttachResource(process *runtime.Process) error {
-	var natsConn resource.NatsConnection
-	err := process.Resource("nats", &natsConn)
-	if err != nil {
-		return err
-	}
+func (ps *ProjectionStore) Attach(process *runtime.Process) error {
 	var dbConn resource.MongoConnection
-	err = process.Resource("mdb", &dbConn)
+	err := process.Resource("mdb", &dbConn)
 	if err != nil {
 		return err
 	}
-	for evPtr, fnPtr := range proj.events {
+	var streamConn resource.NatsConnection
+	err = process.Resource("stream", &streamConn)
+	if err != nil {
+		return err
+	}
+
+	dbName := strings.Replace(process.Context.Identifier, ".", "_", -1)
+	collection, err := dbConn.EnsureCollection(dbName, ps.projectionType.Name)
+	if err != nil {
+		return err
+	}
+	ps.collection = collection
+
+	for evPtr, fn := range ps.events {
 		ev := *evPtr
-		fn := *fnPtr
-		topic := fmt.Sprintf("%s.%s", process.Context.Name, ev.ParentType.Name)
-		natsConn.Client.QueueSubscribe(topic, "projection_group", func(m *nats.Msg) {
-			obj, err := symbols.FromBytes(m.Data)
+		streamConn.Client.QueueSubscribe(string(ev.Topic), "projection_group", func(m *nats.Msg) {
+			value, err := symbols.ValueFromBytes(m.Data)
 			if err != nil {
-				log.Output(log.LoggerMessage{
-					LogLevel: log.LevelERROR,
-					Signal:   ProjectionEventSignal,
-					Message:  "failed to construct object from event",
-					Data: log.LogData{
-						"err":   err.Error(),
-						"event": string(m.Data),
-					},
-				})
 				return
 			}
-			_, err = fn.Call([]symbols.ValueObject{obj}, stream.Message{})
+			constructedValue, err := symbols.Construct(ev, value)
 			if err != nil {
-				log.Output(log.LoggerMessage{
-					LogLevel: log.LevelERROR,
-					Signal:   ProjectionEventSignal,
-					Message:  "projection event handler failed invocation",
-					Data: log.LogData{
-						"err":   err.Error(),
-						"event": obj,
-					},
-				})
 				return
 			}
-			log.Printf(log.LevelINFO, ProjectionEventSignal, "projection \"%s\" received \"%s\"", proj.ParentType.Name, m.Subject)
+			_, err = fn.Call(constructedValue)
+			if err != nil {
+				return
+			}
 		})
-		log.Printf(log.LevelDEBUG, ProjectionEventSignal, "projection \"%s\" listening for \"%s\"", proj.ParentType.Name, evPtr.Topic)
 	}
-	dbName := strings.Replace(process.Context.Name, ".", "_", -1)
-	collection, err := dbConn.EnsureCollection(dbName, proj.ParentType.Name)
-	if err != nil {
-		return err
-	}
-	proj.collection = collection
-	log.Printf(log.LevelDEBUG, ProjectionSignal, "projection \"%s:%s\" collection created", dbName, proj.ParentType.Name)
 	return nil
 }
-func (proj *Projection) Detach() error {
+func (ps *ProjectionStore) Detach(process *runtime.Process) error {
+	ps.collection = nil
 	return nil
 }
 
-func (proj Projection) ObjectClassFromNode(ctx *context.Context, node ast.ContextObject) (symbols.Class, error) {
-	assumedType, err := (context.TypeInterface{}).ObjectClassFromNode(ctx, node)
-	if err != nil {
-		return nil, err
+type Projection struct {
+	Name       string
+	Private    bool
+	Comment    string
+	Properties map[string]symbols.Class
+}
+
+func (p Projection) Descriptors() *symbols.ClassDescriptors {
+	propertyMap := make(symbols.ClassPropertyMap)
+	for name, class := range p.Properties {
+		propertyMap[name] = symbols.PropertyAttributes(symbols.PropertyOptions{
+			Class: class,
+			Getter: func(val *EntityValue) (symbols.ValueObject, error) {
+				return val.data[name], nil
+			},
+			Setter: func(val *EntityValue, newPropertyValue symbols.ValueObject) error {
+				val.data[name] = newPropertyValue
+				return nil
+			},
+		})
 	}
-	if typeClass, ok := assumedType.(symbols.Type); ok {
-		return &Projection{typeClass, make(map[*stream.Event]*symbols.Function), nil}, nil
-	} else {
-		panic("expected type class")
+	return &symbols.ClassDescriptors{
+		Name:       p.Name,
+		Properties: propertyMap,
 	}
 }
 
-func (proj *Projection) AddMethod(ctx *context.Context, node ast.ContextObjectMethod) error {
-	table := ctx.Symbols()
-	if node.Name != "onEvent" {
-		return symbols.NodeError(node, "unrecognized method %s on projection", node.Name)
-	}
-	if len(node.Block.Parameters.Arguments.Items) != 1 {
-		return symbols.NodeError(node, "onEvent method must have one argument")
-	}
-	if node.Block.Parameters.ReturnType != nil {
-		return symbols.NodeError(node, "onEvent method cannot have a return type")
-	}
-	arg := node.Block.Parameters.Arguments.Items[0]
-	if argExpr, ok := arg.(ast.ArgumentItem); ok {
-		class, err := table.ResolveTypeExpression(argExpr.Init)
-		if err != nil {
-			return err
-		}
-		if event, ok := class.(*stream.Event); ok {
-			fn, err := table.ResolveFunctionBlock(node.Block, &symbols.MapObject{})
-			if err != nil {
-				return err
-			}
-			proj.events[event] = fn
-			return nil
-		} else {
-			return symbols.NodeError(arg, fmt.Sprintf("argument to onEvent must be an event, got %T", class))
-		}
-	} else {
-		return symbols.NodeError(arg, "argument to onEvent must be an event, got type")
-	}
+type ProjectionValue struct {
+	projectionType Projection
+	data           map[string]symbols.ValueObject
 }
 
-func (proj Projection) Export() (symbols.Object, error) {
-	return proj, nil
+func (p ProjectionValue) Class() symbols.Class {
+	return p.projectionType
 }
-
-type ProjectionType struct {
-	parentType Projection
-	fields     map[string]symbols.ValueObject `hash:"ignore"`
-}
-
-func (tp ProjectionType) Class() symbols.Class {
-	return tp.parentType
-}
-func (tp ProjectionType) Value() interface{} {
+func (p ProjectionValue) Value() interface{} {
 	out := make(map[string]interface{})
-	for k, v := range tp.fields {
+	for k, v := range p.data {
 		out[k] = v.Value()
 	}
 	return out
-}
-func (tp *ProjectionType) Set(key string, obj symbols.ValueObject) error {
-	tp.fields[key] = obj
-	return nil
-}
-func (tp ProjectionType) Get(key string) (symbols.Object, error) {
-	return tp.fields[key], nil
 }
 
 type ProjectionRecord struct {
-	parentType Projection
-	recordId   primitive.ObjectID             `bson:"_id,omitempty" hash:"ignore"`
-	fields     map[string]symbols.ValueObject `hash:"ignore"`
+	projectionStore ProjectionStore
 }
 
-func (rec ProjectionRecord) ClassName() string {
-	return fmt.Sprintf("[%s]", rec.parentType.ClassName())
-}
-func (rec ProjectionRecord) Fields() map[string]symbols.Class {
-	return rec.parentType.Fields()
-}
-func (rec ProjectionRecord) Constructors() symbols.ConstructorMap {
-	return symbols.NewConstructorMap()
+func (pr ProjectionRecord) Descriptors() *symbols.ClassDescriptors {
+	propertyMap := make(symbols.ClassPropertyMap)
+	for name, class := range pr.projectionStore.projectionType.Properties {
+		propertyMap[name] = symbols.PropertyAttributes(symbols.PropertyOptions{
+			Class: class,
+			Getter: func(obj *EntityInstanceValue) (symbols.ValueObject, error) {
+				return obj.data[name], nil
+			},
+		})
+	}
+	return &symbols.ClassDescriptors{
+		Name: fmt.Sprintf("[%s]", pr.projectionStore.projectionType.Name),
+		Prototype: symbols.ClassPrototypeMap{
+			"update": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     pr,
+				Arguments: []symbols.Class{pr.projectionStore.projectionType},
+				Returns:   nil,
+				Handler: func(projectionValue *ProjectionRecordValue, updateValue *ProjectionValue) (symbols.ValueObject, error) {
+					_, err := pr.projectionStore.collection.UpdateOne(context.TODO(), bson.M{"_id": projectionValue.recordID}, updateValue.Value())
+					projectionValue.data = updateValue.data
+					return nil, err
+				},
+			}),
+			"delete": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     pr,
+				Arguments: []symbols.Class{},
+				Returns:   nil,
+				Handler: func(projectionValue *ProjectionRecordValue) (symbols.ValueObject, error) {
+					_, err := pr.projectionStore.collection.DeleteOne(context.TODO(), bson.M{"_id": projectionValue.recordID})
+					return nil, err
+				},
+			}),
+		},
+		Properties: propertyMap,
+	}
 }
 
-func (rec ProjectionRecord) Class() symbols.Class {
-	return rec
+type ProjectionRecordValue struct {
+	projectionRecordType ProjectionRecord
+	recordID             *primitive.ObjectID `bson:"_id"`
+	data                 map[string]symbols.ValueObject
 }
-func (rec ProjectionRecord) Value() interface{} {
+
+func (p ProjectionRecordValue) Class() symbols.Class {
+	return p.projectionRecordType
+}
+func (p ProjectionRecordValue) Value() interface{} {
 	out := make(map[string]interface{})
-	for k, v := range rec.fields {
+	for k, v := range p.data {
 		out[k] = v.Value()
 	}
+	out["$_id"] = p.recordID.String()
 	return out
-}
-func (rec ProjectionRecord) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, obj)
-}
-func (rec ProjectionRecord) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
-		"update": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{rec.parentType},
-			Returns:   rec,
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if rec.parentType.collection == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				val := args[0].(*ProjectionType)
-				res := rec.parentType.collection.FindOneAndUpdate(ctx.TODO(), bson.M{"$record": rec.recordId}, val.Value())
-				if err := res.Err(); err != nil {
-					return nil, err
-				}
-				rec.fields = val.fields
-				return rec, nil
-			},
-		}),
-		"delete": symbols.NewFunction(symbols.FunctionOptions{
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				if rec.parentType.collection == nil {
-					return nil, fmt.Errorf("db connection not initialized")
-				}
-				res := rec.parentType.collection.FindOneAndDelete(ctx.TODO(), bson.M{"_id": rec.recordId})
-				if err := res.Err(); err != nil {
-					return nil, err
-				}
-				return nil, nil
-			},
-		}),
-	}
-	return methods[key], nil
 }

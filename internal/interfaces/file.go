@@ -2,119 +2,98 @@ package interfaces
 
 import (
 	"github.com/hntrl/hyper/internal/ast"
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/stdlib"
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 )
 
-type FileType struct {
-	Name     string
-	Private  bool
-	Comment  string
-	Lazyload bool
-	Allowed  []stdlib.MimeType
-	Sizes    []stdlib.Dimension
-}
+type FileInterface struct{}
 
-func (f FileType) ClassName() string {
-	return f.Name
-}
-func (f FileType) Constructors() symbols.ConstructorMap {
-	csMap := symbols.NewConstructorMap()
-	csMap.AddConstructor(symbols.String{}, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
-		return File{parentType: f, fileId: string(obj.(symbols.StringLiteral))}, nil
-	})
-	return csMap
-}
-func (f FileType) Get(key string) (symbols.Object, error) {
-	return nil, nil
-}
-
-func (f FileType) ObjectClassFromNode(ctx *context.Context, node ast.ContextObject) (symbols.Class, error) {
+func (FileInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*domain.ContextItem, error) {
 	table := ctx.Symbols()
-
-	f.Name = node.Name
-	f.Private = node.Private
-	f.Comment = node.Comment
-
+	if node.Private {
+		return nil, errors.NodeError(node, 0, "file cannot be private: files aren't exported")
+	}
+	fileClass := FileClass{
+		Name:    node.Name,
+		Private: node.Private,
+		Comment: node.Comment,
+	}
 	for _, item := range node.Fields {
 		switch field := item.Init.(type) {
-		case ast.AssignmentStatement:
-			obj, err := table.ResolveValueObject(field.Init)
-			if err != nil {
-				return nil, err
-			}
+		case ast.FieldAssignmentExpression:
 			switch field.Name {
 			case "allowed":
-				iterable, ok := obj.(symbols.Iterable)
+				value, err := table.ResolveExpression(field.Init)
+				if err != nil {
+					return nil, err
+				}
+				arrayValue, ok := value.(*symbols.ArrayValue)
 				if !ok {
-					return nil, symbols.NodeError(field.Init, "%T not allowed for sizes in file", obj.Class().ClassName())
+					return nil, errors.NodeError(field.Init, 0, "expected array of type mime.MimeType, got %s", value.Class().Descriptors().Name)
 				}
-				if iterable.ParentType != (stdlib.MimeType{}) {
-					return nil, symbols.NodeError(field.Init, "expected iterable of type mime.MimeType, got %s", iterable.ParentType.ClassName())
+				if arrayValue.ItemClass() != stdlib.MimeType {
+					return nil, errors.NodeError(field.Init, 0, "expected array of type mime.MimeType, got %s", arrayValue.ItemClass().Descriptors().Name)
 				}
-				allowed := make([]stdlib.MimeType, len(iterable.Items))
-				for idx, valueObj := range iterable.Items {
-					allowed[idx] = valueObj.(stdlib.MimeType)
+				arrayValueItems := arrayValue.Slice()
+				allowed := make([]stdlib.MimeTypeValue, len(arrayValueItems))
+				for idx, valueObj := range arrayValueItems {
+					allowed[idx] = valueObj.(stdlib.MimeTypeValue)
 				}
-				f.Allowed = allowed
-			case "sizes":
-				iterable, ok := obj.(symbols.Iterable)
-				if !ok {
-					return nil, symbols.NodeError(field.Init, "%T not allowed for sizes in file", obj.Class().ClassName())
-				}
-				if iterable.ParentType != (stdlib.Dimension{}) {
-					return nil, symbols.NodeError(field.Init, "expected iterable of type units.Dimension, got %s", iterable.ParentType.ClassName())
-				}
-				sizes := make([]stdlib.Dimension, len(iterable.Items))
-				for idx, valueObj := range iterable.Items {
-					sizes[idx] = valueObj.(stdlib.Dimension)
-				}
-				f.Sizes = sizes
-			case "lazyload":
-				if boolLit, ok := obj.(symbols.BooleanLiteral); ok {
-					f.Lazyload = bool(boolLit)
-				} else {
-					return nil, symbols.NodeError(field.Init, "%T not allowed for lazyload in file", obj.Class().ClassName())
-				}
+				fileClass.Allowed = allowed
 			default:
-				return nil, symbols.NodeError(field, "unrecognized assignment %s in file", field.Name)
+				return nil, errors.NodeError(field, 0, "unrecognized assignment %s in file", field.Name)
 			}
 		default:
-			return nil, symbols.NodeError(field, "%T not allowed in file", item)
+			return nil, errors.NodeError(field, 0, "%T not allowed in file", item)
 		}
 	}
-	return f, nil
+	return &domain.ContextItem{
+		HostItem:   fileClass,
+		RemoteItem: nil,
+	}, nil
 }
 
-func (f FileType) Export() (symbols.Object, error) {
-	return f, nil
+type FileClass struct {
+	Name    string
+	Private bool
+	Comment string
+	Allowed []stdlib.MimeTypeValue
 }
 
-type File struct {
-	parentType FileType
-	fileId     string `hash:"ignore"`
-	// body       io.ReadCloser `hash:"ignore"`
-}
-
-func (f File) Class() symbols.Class {
-	return f.parentType
-}
-func (f File) Value() interface{} {
-	return f.fileId
-}
-func (f File) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, f)
-}
-func (f File) Get(key string) (symbols.Object, error) {
-	methods := map[string]symbols.Object{
-		"toString": symbols.NewFunction(symbols.FunctionOptions{
-			Arguments: []symbols.Class{},
-			Returns:   symbols.String{},
-			Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-				return symbols.StringLiteral(f.fileId), nil
-			},
-		}),
+func (fc FileClass) Descriptors() *symbols.ClassDescriptors {
+	return &symbols.ClassDescriptors{
+		Name: fc.Name,
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.String, func(val symbols.StringValue) (FileValue, error) {
+				return FileValue{
+					fileClass: fc,
+					fileID:    string(val),
+				}, nil
+			}),
+		},
+		Prototype: symbols.ClassPrototypeMap{
+			"identifier": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     fc,
+				Arguments: []symbols.Class{},
+				Returns:   symbols.String,
+				Handler: func(fileValue *FileValue) (symbols.StringValue, error) {
+					return symbols.StringValue(fileValue.fileID), nil
+				},
+			}),
+		},
 	}
-	return methods[key], nil
+}
+
+type FileValue struct {
+	fileClass FileClass
+	fileID    string `hash:"ignore"`
+}
+
+func (fv FileValue) Class() symbols.Class {
+	return fv.fileClass
+}
+func (fv FileValue) Value() interface{} {
+	return fv.fileID
 }

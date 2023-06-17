@@ -698,6 +698,15 @@ func (av *ArrayValue) Set(idx int, val ValueObject) {
 	av.items[idx] = val
 }
 
+func (av *ArrayValue) ItemClass() Class {
+	return av.parentClass.itemClass
+}
+func (av *ArrayValue) Slice() []ValueObject {
+	out := make([]ValueObject, len(av.items))
+	copy(out, av.items)
+	return out
+}
+
 // @ 2.2.8 `Error` Object
 
 var (
