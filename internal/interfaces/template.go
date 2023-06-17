@@ -2,113 +2,111 @@ package interfaces
 
 import (
 	"bytes"
-	"fmt"
 	"path"
 
 	"github.com/hntrl/hyper/internal/ast"
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/kataras/blocks"
 )
 
-type Template struct {
-	Name       string
-	Private    bool
-	Comment    string
-	ParentType symbols.ObjectClass
-	FileName   string
-	LayoutName string
-	Blocks     *blocks.Blocks
-}
+type TemplateInterface struct{}
 
-func (tm Template) ClassName() string {
-	return tm.Name
-}
-func (tm Template) Fields() map[string]symbols.Class {
-	return tm.ParentType.Fields()
-}
-func (tm Template) Constructors() symbols.ConstructorMap {
-	return symbols.NewConstructorMap()
-}
-func (tm Template) Get(key string) (symbols.Object, error) {
-	return nil, nil
-}
-
-func (tm Template) Arguments() []symbols.Class {
-	return []symbols.Class{tm.ParentType}
-}
-func (tm Template) Returns() symbols.Class {
-	return symbols.String{}
-}
-func (tm Template) Call(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-	var buffer bytes.Buffer
-	err := tm.Blocks.ExecuteTemplate(&buffer, tm.FileName, tm.LayoutName, args[0].Value())
-	if err != nil {
-		return nil, err
-	}
-	return symbols.StringLiteral(buffer.String()), nil
-}
-
-func (tm Template) ObjectClassFromNode(ctx *context.Context, node ast.ContextObject) (symbols.Class, error) {
+func (TemplateInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*domain.ContextItem, error) {
 	table := ctx.Symbols()
-	templateValue := Template{
+	if node.Private {
+		return nil, errors.NodeError(node, 0, "template cannot be private: templates aren't exported")
+	}
+
+	builder := TemplateBuilder{
 		Name:    node.Name,
-		Private: node.Private,
 		Comment: node.Comment,
 	}
-
-	blocks := blocks.New(path.Join(path.Dir(ctx.Path), "./templates"))
+	blocks := blocks.New(path.Join(path.Dir(string(ctx.Path)), "./templates"))
 	err := blocks.Load()
 	if err != nil {
 		return nil, err
 	}
-	templateValue.Blocks = blocks
+	builder.blocks = blocks
 
 	for _, item := range node.Fields {
 		switch field := item.Init.(type) {
-		case ast.AssignmentStatement:
-			expr, err := table.ResolveValueObject(field.Init)
-			if err != nil {
-				return nil, err
-			}
-			strLit, ok := expr.(symbols.StringLiteral)
-			if !ok {
-				return nil, symbols.NodeError(field.Init, "cannot use %T as assignment in email template", expr)
-			}
-
-			if field.Name == "src" {
-				templateValue.FileName = string(strLit)
-			} else if field.Name == "layout" {
-				templateValue.LayoutName = string(strLit)
-			} else {
-				return nil, symbols.NodeError(field, "unknown key %s for assignment in email template", field.Name)
-			}
-		case ast.TypeStatement:
-			if field.Name == "type" {
-				expr, err := table.ResolveTypeExpression(field.Init)
+		case ast.FieldAssignmentExpression:
+			switch field.Name {
+			case "src":
+				fileNameValue, err := table.ResolveExpression(field.Init)
 				if err != nil {
 					return nil, err
 				}
-				objectClass, ok := expr.(symbols.ObjectClass)
+				strValue, ok := fileNameValue.(symbols.StringValue)
 				if !ok {
-					return nil, symbols.NodeError(field, "email template type must be an object class")
+					return nil, errors.NodeError(field.Init, 0, "expected String for src, got %s", fileNameValue.Class().Descriptors().Name)
 				}
-				templateValue.ParentType = objectClass
-			} else {
-				return nil, symbols.NodeError(field, "unknown type %s in email template", field.Name)
+				builder.fileName = string(strValue)
+			case "layout":
+				layoutNameValue, err := table.ResolveExpression(field.Init)
+				if err != nil {
+					return nil, err
+				}
+				strValue, ok := layoutNameValue.(symbols.StringValue)
+				if !ok {
+					return nil, errors.NodeError(field.Init, 0, "expected String for layout, got %s", layoutNameValue.Class().Descriptors().Name)
+				}
+				builder.layoutName = string(strValue)
+			default:
+				return nil, errors.NodeError(field, 0, "unrecognized assignment %s in template", field.Name)
+			}
+		case ast.FieldExpression:
+			switch field.Name {
+			case "type":
+				typeClass, err := table.EvaluateTypeExpression(field.Init)
+				if err != nil {
+					return nil, err
+				}
+				builder.parentType = typeClass
+			default:
+				return nil, errors.NodeError(field, 0, "unrecognized field %s in template", field.Name)
 			}
 		default:
-			return nil, fmt.Errorf("parsing: %T not allowed in email template", item)
+			return nil, errors.NodeError(field, 0, "%T not allowed in template", item)
 		}
 	}
-	if templateValue.ParentType == nil {
-		return nil, symbols.NodeError(node, "missing type in email template")
+	if builder.parentType == nil {
+		return nil, errors.NodeError(node, 0, "template must have a type")
 	}
-	if templateValue.FileName == "" {
-		return nil, symbols.NodeError(node, "missing src in email template")
+	if builder.fileName == "" {
+		return nil, errors.NodeError(node, 0, "template must have a `src` attribute")
 	}
-	if templateValue.LayoutName == "" {
-		return nil, symbols.NodeError(node, "missing layout in email template")
+	if builder.layoutName == "" {
+		return nil, errors.NodeError(node, 0, "template must have a `layout` attribute")
 	}
-	return templateValue, nil
+	return &domain.ContextItem{
+		HostItem:   builder,
+		RemoteItem: nil,
+	}, nil
+}
+
+type TemplateBuilder struct {
+	Name       string
+	Comment    string
+	parentType symbols.Class
+	fileName   string
+	layoutName string
+	blocks     *blocks.Blocks
+}
+
+func (tb TemplateBuilder) Arguments() []symbols.Class {
+	return []symbols.Class{tb.parentType}
+}
+func (tb TemplateBuilder) Returns() symbols.Class {
+	return symbols.String
+}
+func (tb TemplateBuilder) Call(args ...symbols.ValueObject) (symbols.ValueObject, error) {
+	var buffer bytes.Buffer
+	err := tb.blocks.ExecuteTemplate(&buffer, tb.fileName, tb.layoutName, args[0].Value())
+	if err != nil {
+		return nil, err
+	}
+	return symbols.StringValue(buffer.String()), nil
 }

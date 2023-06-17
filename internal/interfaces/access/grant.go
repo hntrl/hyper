@@ -2,65 +2,80 @@ package access
 
 import (
 	"github.com/hntrl/hyper/internal/ast"
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 )
 
-type Grant struct{}
+type GrantInterface struct{}
 
-func (gr Grant) ClassName() string {
-	return "Grant"
-}
-func (gr Grant) Constructors() symbols.ConstructorMap {
-	return symbols.NewConstructorMap()
-}
-func (gr Grant) Get(key string) (symbols.Object, error) {
-	return nil, nil
-}
-
-func (gr Grant) ValueFromNode(ctx *context.Context, node ast.ContextObject) (symbols.ValueObject, error) {
+func (GrantInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*domain.ContextItem, error) {
 	table := ctx.Symbols()
-	lit := GrantLiteral{}
+	if node.Private {
+		return nil, errors.NodeError(node, 0, "grant cannot be private: grants aren't exported")
+	}
+	grant := GrantValue{
+		Name:        node.Name,
+		Description: node.Comment,
+	}
 	for _, item := range node.Fields {
 		switch field := item.Init.(type) {
-		case ast.AssignmentStatement:
-			expr, err := table.ResolveValueObject(field.Init)
-			if err != nil {
-				return nil, err
-			}
-			if strLit, ok := expr.(symbols.StringLiteral); ok {
-				switch field.Name {
-				case "name":
-					lit.Name = string(strLit)
-				case "description":
-					lit.Description = string(strLit)
-				default:
-					return nil, symbols.NodeError(field, "unknown field %s in grant", field.Name)
+		case ast.FieldAssignmentExpression:
+			switch field.Name {
+			case "name":
+				nameValue, err := table.ResolveExpression(field.Init)
+				if err != nil {
+					return nil, err
 				}
-			} else {
-				return nil, symbols.NodeError(field, "parsing: %s not allowed in grant", expr.Class().ClassName())
+				strValue, ok := nameValue.(symbols.StringValue)
+				if !ok {
+					return nil, errors.NodeError(field.Init, 0, "expected String for name, got %s", nameValue.Class().Descriptors().Name)
+				}
+				grant.Name = string(strValue)
+			case "description":
+				descriptionValue, err := table.ResolveExpression(field.Init)
+				if err != nil {
+					return nil, err
+				}
+				strValue, ok := descriptionValue.(symbols.StringValue)
+				if !ok {
+					return nil, errors.NodeError(field.Init, 0, "expected String for description, got %s", descriptionValue.Class().Descriptors().Name)
+				}
+				grant.Description = string(strValue)
+			default:
+				return nil, errors.NodeError(field, 0, "unrecognized assignment %s in grant", field.Name)
 			}
 		default:
-			return nil, symbols.NodeError(field, "parsing: %T not allowed in grant", field)
+			return nil, errors.NodeError(field, 0, "%T not allowed in parameter", item)
 		}
 	}
-	return lit, nil
+	return &domain.ContextItem{
+		HostItem:   grant,
+		RemoteItem: nil,
+	}, nil
 }
 
-type GrantLiteral struct {
+var (
+	Grant            = GrantClass{}
+	GrantDescriptors = &symbols.ClassDescriptors{
+		Name: "Grant",
+	}
+)
+
+type GrantClass struct{}
+
+func (GrantClass) Descriptors() *symbols.ClassDescriptors {
+	return GrantDescriptors
+}
+
+type GrantValue struct {
 	Name        string
 	Description string
 }
 
-func (gr GrantLiteral) Class() symbols.Class {
-	return Grant{}
+func (GrantValue) Class() symbols.Class {
+	return Grant
 }
-func (gr GrantLiteral) Value() interface{} {
+func (GrantValue) Value() interface{} {
 	return nil
-}
-func (gr GrantLiteral) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, gr)
-}
-func (gr GrantLiteral) Get(key string) (symbols.Object, error) {
-	return nil, nil
 }

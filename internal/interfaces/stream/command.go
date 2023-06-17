@@ -6,253 +6,185 @@ import (
 	"time"
 
 	"github.com/hntrl/hyper/internal/ast"
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/runtime"
 	"github.com/hntrl/hyper/internal/runtime/log"
 	"github.com/hntrl/hyper/internal/runtime/resource"
-
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/nats-io/nats.go"
 )
-
-type Command struct {
-	Name    string
-	Topic   string
-	Private bool
-	Comment string
-	Handler *symbols.Function
-	stream  *resource.NatsConnection `hash:"ignore"`
-}
 
 var CommandSignal = log.Signal("COMMAND")
 var CommandMessageSignal = log.Signal("COMMAND_MESSAGE")
 
-func (cmd Command) ClassName() string {
-	return "Command"
-}
-func (cmd Command) Constructors() symbols.ConstructorMap {
-	return symbols.NewConstructorMap()
-}
-func (cmd Command) Get(key string) (symbols.Object, error) {
-	return nil, nil
-}
+type CommandInterface struct{}
 
-func (cmd *Command) Attach(process *runtime.Process) error {
-	var conn resource.NatsConnection
-	err := process.Resource("nats", &conn)
+func (CommandInterface) FromNode(ctx *domain.Context, node ast.ContextMethod) (*domain.ContextItem, error) {
+	table := ctx.Symbols()
+	if len(node.Block.Parameters.Arguments.Items) > 1 {
+		return nil, errors.NodeError(node.Block.Parameters.Arguments, 0, "command must have only one argument")
+	}
+	fn, err := table.ResolveFunctionBlock(node.Block)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	cmd.stream = &conn
-	return nil
+	cmd := Command{
+		Name:        node.Name,
+		Private:     node.Private,
+		Comment:     node.Comment,
+		Topic:       Topic(fmt.Sprintf("%s.%s", ctx.Identifier, node.Name)),
+		PayloadType: nil,
+		Returns:     fn.Returns(),
+	}
+	if len(fn.Arguments()) == 1 {
+		cmd.PayloadType = fn.Arguments()[0]
+	}
+	consumer := CommandConsumer{
+		cmd:     cmd,
+		handler: fn,
+	}
+	if !node.Private {
+		return &domain.ContextItem{
+			HostItem:   consumer,
+			RemoteItem: CommandEmitter{cmd: cmd},
+		}, nil
+	} else {
+		return &domain.ContextItem{
+			HostItem:   consumer,
+			RemoteItem: nil,
+		}, nil
+	}
 }
-func (cmd *Command) AttachResource(process *runtime.Process) error {
-	if cmd.stream == nil {
-		return fmt.Errorf("nats connection not initialized")
+
+type Command struct {
+	Name        string
+	Private     bool
+	Comment     string
+	Topic       Topic
+	PayloadType symbols.Class
+	Returns     symbols.Class
+}
+
+// CommandConsumer represents the abstraction used by the runtime to attach to a stream and process incoming messages on behalf of a Command.
+type CommandConsumer struct {
+	cmd     Command
+	handler symbols.Callable
+	stream  *resource.NatsConnection
+}
+
+func (consumer CommandConsumer) Arguments() []symbols.Class {
+	if consumer.cmd.PayloadType == nil {
+		return []symbols.Class{}
 	}
-	if cmd.Handler.Handler != nil {
-		cmd.stream.Client.QueueSubscribe(cmd.Topic, "handler_queue", func(m *nats.Msg) {
-			start := time.Now()
-			sendErrorResponse := func(streamError error) {
-				bytes, err := json.Marshal(map[string]interface{}{
-					"$error": streamError,
-				})
-				if err != nil {
-					log.Output(log.LoggerMessage{
-						LogLevel: log.LevelERROR,
-						Signal:   CommandMessageSignal,
-						Message:  "failed to marshal stream response when sending error",
-						Data: map[string]string{
-							"err":     err.Error(),
-							"command": cmd.Topic,
-						},
-					})
-					return
-				}
-				err = m.Respond(bytes)
-				if err != nil {
-					log.Output(log.LoggerMessage{
-						LogLevel: log.LevelERROR,
-						Signal:   CommandMessageSignal,
-						Message:  "failed to issue stream response when sending error",
-						Data: map[string]string{
-							"err":     err.Error(),
-							"command": cmd.Topic,
-						},
-					})
-					return
-				}
-			}
-			reportError := func(level log.LogLevel, logMessage string, data log.LogData, streamError error) {
-				if data == nil {
-					data = log.LogData{}
-				}
-				data["command"] = cmd.Topic
-				data["stream_response"] = streamError
-				data["time"] = time.Since(start).String()
-				log.Output(log.LoggerMessage{
-					LogLevel: level,
-					Signal:   CommandMessageSignal,
-					Message:  logMessage,
-					Data:     data,
-				})
-				sendErrorResponse(streamError)
-			}
+	return []symbols.Class{consumer.cmd.PayloadType}
+}
+func (consumer CommandConsumer) Returns() symbols.Class {
+	return consumer.cmd.Returns
+}
+func (consumer CommandConsumer) Call(args ...symbols.ValueObject) (symbols.ValueObject, error) {
+	return consumer.handler.Call(args...)
+}
 
-			var err error
-			var generic symbols.ValueObject
-			if len(cmd.Arguments()) > 0 {
-				generic, err = symbols.FromBytes(m.Data)
-				if err != nil {
-					reportError(log.LevelERROR, "failed to construct object from message", nil, symbols.Error{
-						Name:    "MarshalError",
-						Message: err.Error(),
-					})
-					return
-				}
-			}
-
-			args := []symbols.ValueObject{}
-			if generic != nil {
-				args = append(args, generic)
-			}
-
-			result, err := cmd.Handler.Call(args, Message{})
+func (consumer *CommandConsumer) Attach(process runtime.Process) error {
+	consumer.stream.Client.QueueSubscribe(string(consumer.cmd.Topic), "handler_queue", func(m *nats.Msg) {
+		var payload symbols.ValueObject
+		if consumer.cmd.PayloadType != nil {
+			value, err := symbols.ValueFromBytes(m.Data)
 			if err != nil {
-				if symErr, ok := err.(symbols.Error); ok {
-					// not a runtime error -- an error returned from the invocation
-					reportError(
-						log.LevelINFO,
-						fmt.Sprintf("\"%s\" failed", cmd.Name),
-						nil,
-						symErr,
-					)
-				} else {
-					reportError(
-						log.LevelERROR,
-						fmt.Sprintf("\"%s\" failed with unknown exception", cmd.Name),
-						log.LogData{"err": err.Error()},
-						symbols.Error{
-							Name:    "InternalError",
-							Message: "unknown exception occured",
-						},
-					)
-				}
-				return
+
 			}
-			bytes := []byte("{}")
-			if cmd.Returns() != nil {
-				bytes, err = json.Marshal(result.Value())
-				if err != nil {
-					reportError(
-						log.LevelERROR,
-						"failed to marshal response",
-						log.LogData{"err": err.Error()},
-						symbols.Error{
-							Name:    "InternalError",
-							Message: "failed to marshal response",
-						},
-					)
-					return
-				}
-			}
-			err = m.Respond(bytes)
+			payload, err = symbols.Construct(consumer.cmd.PayloadType, value)
 			if err != nil {
-				reportError(
-					log.LevelERROR,
-					"failed to send response",
-					log.LogData{"err": err.Error()},
-					symbols.Error{
-						Name:    "InternalError",
-						Message: "failed to send response",
-					},
-				)
-				return
+
 			}
-			log.Printf(log.LevelINFO, CommandMessageSignal, "%s(): %s", cmd.Name, time.Since(start))
-		})
-		log.Printf(log.LevelDEBUG, CommandSignal, "command \"%s\" listening for messages", cmd.Name)
-	}
+		}
+		result, err := consumer.handler.Call(payload)
+		if err != nil {
+
+		}
+		if consumer.cmd.Returns != nil {
+			bytes, err := json.Marshal(result.Value())
+			if err != nil {
+
+			}
+			m.Respond(bytes)
+		}
+	})
 	return nil
 }
-func (cmd *Command) Detach() error {
+func (consumer *CommandConsumer) Detach(process runtime.Process) error {
+	consumer.stream = nil
 	return nil
 }
 
-func (cmd Command) Arguments() []symbols.Class {
-	return cmd.Handler.Arguments()
+type CommandEmitter struct {
+	cmd    Command
+	stream *resource.NatsConnection
 }
-func (cmd Command) Returns() symbols.Class {
-	return cmd.Handler.Returns()
-}
-func (cmd Command) Call(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-	if cmd.stream == nil {
-		return nil, fmt.Errorf("nats connection not initialized")
-	}
 
-	bytes, err := json.Marshal(args[0].Value())
-	if err != nil {
-		return nil, err
+func (emitter CommandEmitter) Arguments() []symbols.Class {
+	if emitter.cmd.PayloadType == nil {
+		return []symbols.Class{}
 	}
-	res, err := cmd.stream.Client.Request(cmd.Topic, bytes, time.Second*5)
-	if err != nil {
-		return nil, err
+	return []symbols.Class{emitter.cmd.PayloadType}
+}
+func (emitter CommandEmitter) Returns() symbols.Class {
+	return emitter.cmd.Returns
+}
+func (emitter CommandEmitter) Call(args ...symbols.ValueObject) (symbols.ValueObject, error) {
+	if emitter.stream == nil {
+		panic("stream connection not initialized")
 	}
-	generic, err := symbols.FromBytes(res.Data)
-	if err != nil {
-		return nil, err
+	bytes := []byte{}
+	if emitter.cmd.PayloadType != nil {
+		var err error
+		bytes, err = json.Marshal(args[0].Value())
+		if err != nil {
+			return nil, err
+		}
 	}
-	if obj, ok := generic.(*symbols.MapObject); ok {
-		if err, ok := obj.Data["$error"]; ok {
-			if errObject, ok := err.(*symbols.MapObject); ok {
-				return nil, symbols.ErrorFromMapObject(errObject)
-			} else {
-				return nil, symbols.Error{
+	if emitter.cmd.Returns != nil {
+		res, err := emitter.stream.Client.Request(string(emitter.cmd.Topic), bytes, time.Second*5)
+		if err != nil {
+			return nil, err
+		}
+		value, err := symbols.ValueFromBytes(res.Data)
+		if err != nil {
+			return nil, err
+		}
+		if mapValue, ok := value.(*symbols.MapValue); ok {
+			if errValue := mapValue.Get("$error"); errValue != nil {
+				if errMapValue, ok := errValue.(*symbols.MapValue); ok {
+					constructedErr, err := symbols.Construct(symbols.Error, errMapValue)
+					if err != nil {
+						return nil, err
+					}
+					return nil, constructedErr.(symbols.ErrorValue)
+				}
+				return nil, symbols.ErrorValue{
 					Name:    "InternalError",
 					Message: "unknown error was returned upstream",
 				}
 			}
 		}
-	}
-	if cmd.Returns() == nil {
-		return symbols.NilLiteral{}, nil
-	}
-	return symbols.Construct(cmd.Returns(), generic)
-}
-
-func (Command) RemoteMethodClassFromNode(ctx *context.Context, node ast.RemoteContextMethod) (symbols.Class, error) {
-	table := ctx.Symbols()
-	args, returns, err := table.ResolveFunctionParameters(node.Parameters)
-	if err != nil {
+		return symbols.Construct(emitter.cmd.Returns, value)
+	} else {
+		err := emitter.stream.Client.Publish(string(emitter.cmd.Topic), bytes)
 		return nil, err
 	}
-	return &Command{
-		Name:    node.Name,
-		Topic:   fmt.Sprintf("%s.%s", ctx.Name, node.Name),
-		Private: node.Private,
-		Comment: node.Comment,
-		Handler: &symbols.Function{
-			ArgumentTypes: args,
-			ReturnType:    returns,
-			Handler:       nil,
-		},
-	}, nil
-}
-func (Command) MethodClassFromNode(ctx *context.Context, node ast.ContextMethod) (symbols.Class, error) {
-	symbols := ctx.Symbols()
-	fn, err := symbols.ResolveFunctionBlock(node.Block, Message{})
-	if err != nil {
-		return nil, err
-	}
-	return &Command{
-		Name:    node.Name,
-		Topic:   fmt.Sprintf("%s.%s", ctx.Name, node.Name),
-		Private: node.Private,
-		Comment: node.Comment,
-		Handler: fn,
-	}, nil
 }
 
-func (cmd Command) Export() (symbols.Object, error) {
-	return cmd, nil
+func (emitter *CommandEmitter) Attach(process runtime.Process) error {
+	var conn resource.NatsConnection
+	err := process.Resource("stream", &conn)
+	if err != nil {
+		return err
+	}
+	emitter.stream = &conn
+	return nil
+}
+func (emitter *CommandEmitter) Detach(process runtime.Process) error {
+	emitter.stream = nil
+	return nil
 }

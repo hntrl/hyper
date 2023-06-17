@@ -5,24 +5,20 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/runtime"
 	"github.com/hntrl/hyper/internal/symbols"
 )
 
-func RegisterDefaults(ctx *context.ContextBuilder, process *runtime.Process) {
+func RegisterDefaults(builder *domain.ContextBuilder, process *runtime.Process) {
 	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	ctx.RegisterInterface("entity", &Entity{})
-	ctx.RegisterInterface("projection", &Projection{})
-
-	ctx.Selectors["deprecated_GenericID"] = symbols.NewFunction(symbols.FunctionOptions{
-		Arguments: []symbols.Class{
-			symbols.Integer{},
+	builder.RegisterInterface("entity", EntityInterface{})
+	builder.RegisterInterface("projection", ProjectionInterface{})
+	builder.RegisterSelector("unsafe_GenericID", symbols.NewFunction(symbols.FunctionOptions{
+		Arguments: []symbols.Class{symbols.Integer},
+		Returns:   symbols.String,
+		Handler: func(len symbols.IntegerValue) (symbols.StringValue, error) {
+			return symbols.StringValue(strconv.Itoa(seededRand.Int())[0:len]), nil
 		},
-		Returns: symbols.String{},
-		Handler: func(args []symbols.ValueObject, proto symbols.ValueObject) (symbols.ValueObject, error) {
-			return symbols.StringLiteral(strconv.Itoa(seededRand.Int())[0:args[0].(symbols.IntegerLiteral)]), nil
-		},
-	})
+	}))
 }

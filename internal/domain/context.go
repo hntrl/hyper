@@ -13,15 +13,17 @@ import (
 type ContextPath string
 
 type ContextBuilder struct {
-	hostContextPath ContextPath
-	Contexts        map[ContextPath]*Context
-	interfaces      map[string]interface{}
+	hostContextPath   ContextPath
+	Contexts          map[ContextPath]*Context
+	interfaces        map[string]interface{}
+	selectorOverrides map[string]symbols.ScopeValue
 }
 
 func NewContextBuilder() *ContextBuilder {
 	return &ContextBuilder{
-		Contexts:   make(map[ContextPath]*Context),
-		interfaces: make(map[string]interface{}),
+		Contexts:          make(map[ContextPath]*Context),
+		interfaces:        make(map[string]interface{}),
+		selectorOverrides: make(map[string]symbols.ScopeValue),
 	}
 }
 
@@ -62,12 +64,15 @@ func (bd *ContextBuilder) addContext(node ast.Manifest, path string) error {
 	ctx := &Context{
 		Identifier:       node.Context.Name,
 		Path:             ContextPath(path),
+		Selectors:        make(map[string]symbols.ScopeValue),
 		Items:            make(map[string]ContextItem),
 		ImportedContexts: make([]ContextPath, 0),
 		unresolvedItems:  make(map[string]ast.Node),
-		selectors:        make(map[string]symbols.ScopeValue),
 		manifestNode:     node,
 		builder:          bd,
+	}
+	for k, v := range bd.selectorOverrides {
+		ctx.Selectors[k] = v
 	}
 	bd.Contexts[ctx.Path] = ctx
 	for _, contextItem := range node.Context.Items {
@@ -89,9 +94,13 @@ func (bd *ContextBuilder) addContext(node ast.Manifest, path string) error {
 	return nil
 }
 
+func (bd *ContextBuilder) RegisterSelector(key string, val symbols.ScopeValue) {
+	bd.selectorOverrides[key] = val
+}
 func (bd *ContextBuilder) RegisterInterface(key string, val interface{}) {
 	bd.interfaces[key] = val
 }
+
 func (bd *ContextBuilder) HostContext() *Context {
 	return bd.GetContextByPath(string(bd.hostContextPath))
 }
@@ -111,16 +120,16 @@ type Context struct {
 	Identifier       string
 	Path             ContextPath
 	Items            map[string]ContextItem
+	Selectors        map[string]symbols.ScopeValue
 	ImportedContexts []ContextPath
 	unresolvedItems  map[string]ast.Node
-	selectors        map[string]symbols.ScopeValue
 	manifestNode     ast.Manifest
 	builder          *ContextBuilder
 }
 
 func (ctx *Context) ImportPackage(source string) error {
 	if stdlibPackage, ok := stdlib.Packages[source]; ok {
-		ctx.selectors[source] = stdlibPackage
+		ctx.Selectors[source] = stdlibPackage
 		return nil
 	}
 	absPath, err := filepath.Abs(filepath.Join(filepath.Dir(string(ctx.Path)), source))
@@ -180,7 +189,7 @@ func (ctx *Context) addFunction(node ast.FunctionExpression) error {
 	if err != nil {
 		return err
 	}
-	ctx.selectors[node.Name] = fn
+	ctx.Selectors[node.Name] = fn
 	return nil
 }
 func (ctx *Context) resolveItem(key string) error {
@@ -236,7 +245,7 @@ func (ctx *Context) Get(key string) (symbols.ScopeValue, error) {
 			return nil, err
 		}
 	}
-	if selector, ok := ctx.selectors[key]; ok {
+	if selector, ok := ctx.Selectors[key]; ok {
 		return selector, nil
 	}
 	return ctx.Items[key].HostItem, nil
@@ -301,7 +310,7 @@ func (d Domain) AddContextBySelector(selector string, ctx *Context) error {
 }
 
 func addContextToSelectors(ctx *Context, importedCtx *Context) {
-	domain := NewDomainFromSelectors(ctx.selectors)
+	domain := NewDomainFromSelectors(ctx.Selectors)
 	domain.AddContextBySelector(importedCtx.Identifier, importedCtx)
-	ctx.selectors = domain
+	ctx.Selectors = domain
 }

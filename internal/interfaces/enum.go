@@ -4,101 +4,86 @@ import (
 	"fmt"
 
 	"github.com/hntrl/hyper/internal/ast"
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/symbols"
+	"github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/hntrl/hyper/internal/tokens"
 )
+
+type EnumInterface struct{}
+
+func (EnumInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*domain.ContextItem, error) {
+	enum := &Enum{
+		Name:    node.Name,
+		Private: node.Private,
+		Comment: node.Comment,
+		items:   make(map[string]EnumItem),
+	}
+	for _, item := range node.Fields {
+		switch field := item.Init.(type) {
+		case ast.EnumExpression:
+			enum.items[field.Name] = EnumItem{
+				parentType:  enum,
+				stringValue: string(field.Name),
+			}
+		default:
+			return nil, errors.NodeError(field, 0, "%T not allowed in enum", item)
+		}
+	}
+	if !node.Private {
+		return &domain.ContextItem{
+			HostItem:   enum,
+			RemoteItem: enum,
+		}, nil
+	} else {
+		return &domain.ContextItem{
+			HostItem:   enum,
+			RemoteItem: nil,
+		}, nil
+	}
+}
 
 type Enum struct {
 	Name    string
 	Private bool
 	Comment string
-	Items   map[string]EnumItem `hash:"ignore"`
+	items   map[string]EnumItem `hash:"ignore"`
 }
 
-func (en Enum) ClassName() string {
-	return en.Name
-}
-func (en Enum) Constructors() symbols.ConstructorMap {
-	csMap := symbols.NewConstructorMap()
-	csMap.AddConstructor(en, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
-		return obj, nil
-	})
-	csMap.AddConstructor(symbols.String{}, func(obj symbols.ValueObject) (symbols.ValueObject, error) {
-		for _, item := range en.Items {
-			if item.StringValue == symbols.StringLiteral(obj.Value().(string)) {
-				return item, nil
-			}
-		}
-		if item, ok := en.Items[obj.Value().(string)]; ok {
-			return item, nil
-		}
-		return nil, fmt.Errorf("%s not valid for %s", obj, en.ClassName())
-	})
-	return csMap
-}
-func (en Enum) Get(key string) (symbols.Object, error) {
-	return en.Items[key], nil
-}
-
-func (en Enum) ComparableRules() symbols.ComparatorRules {
-	rules := symbols.NewComparatorRules()
-	rules.AddComparator(en, tokens.EQUALS, func(a, b symbols.ValueObject) (symbols.ValueObject, error) {
-		return symbols.BooleanLiteral(a.Value() == b.Value()), nil
-	})
-	rules.AddComparator(en, tokens.NOT_EQUALS, func(a, b symbols.ValueObject) (symbols.ValueObject, error) {
-		return symbols.BooleanLiteral(a.Value() != b.Value()), nil
-	})
-	return rules
-}
-
-func (en Enum) Export() (symbols.Object, error) {
-	return en, nil
+func (en Enum) Descriptors() *symbols.ClassDescriptors {
+	return &symbols.ClassDescriptors{
+		Name: en.Name,
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(en, func(val *EnumItem) (EnumItem, error) {
+				return *val, nil
+			}),
+			symbols.Constructor(symbols.String, func(val symbols.StringValue) (*EnumItem, error) {
+				item, ok := en.items[string(val)]
+				if !ok {
+					return nil, fmt.Errorf("%s not valid for %s", val.Value(), en.Name)
+				}
+				return &item, nil
+			}),
+		},
+		Comparators: symbols.ClassComparatorSet{
+			symbols.Comparator(en, tokens.EQUALS, func(a, b EnumItem) (bool, error) {
+				return a.Value() == b.Value(), nil
+			}),
+			symbols.Comparator(en, tokens.NOT_EQUALS, func(a, b EnumItem) (bool, error) {
+				return a.Value() != b.Value(), nil
+			}),
+		},
+	}
 }
 
 type EnumItem struct {
-	ParentType  Enum
-	StringValue symbols.StringLiteral `hash:"ignore"`
+	parentType  *Enum
+	stringValue string `hash:"ignore"`
 }
 
-func (en EnumItem) Class() symbols.Class {
-	return en.ParentType
+func (ei EnumItem) Class() symbols.Class {
+	return ei.parentType
 }
-func (en EnumItem) Value() interface{} {
-	return en.StringValue.Value()
+func (ei EnumItem) Value() interface{} {
+	return ei.stringValue
 }
-func (en EnumItem) Set(key string, obj symbols.ValueObject) error {
-	return symbols.CannotSetPropertyError(key, en)
-}
-func (en EnumItem) Get(key string) (symbols.Object, error) {
-	return nil, nil
-}
-
-func (en Enum) ObjectClassFromNode(ctx *context.Context, node ast.ContextObject) (symbols.Class, error) {
-	obj := Enum{
-		Name:    node.Name,
-		Private: node.Private,
-		Comment: node.Comment,
-	}
-	items := make(map[string]EnumItem)
-	for _, item := range node.Fields {
-		switch field := item.Init.(type) {
-		case ast.EnumStatement:
-			items[field.Name] = EnumItem{
-				obj,
-				symbols.StringLiteral(field.Init),
-			}
-		default:
-			return nil, fmt.Errorf("parsing: %T not allowed in enum", item)
-		}
-	}
-	obj.Items = items
-	return obj, nil
-}
-
-// func (en Enum) IsExported() bool {
-// 	return !en.Private
-// }
-// func (en Enum) ExportedObject() symbols.Object {
-// 	return en
-// }
