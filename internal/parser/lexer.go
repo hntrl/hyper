@@ -2,32 +2,38 @@ package parser
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"unicode"
 
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
-type ErrorHandler func(pos tokens.Position, msg string)
+type LexerError struct {
+	pos tokens.Position
+	err error
+}
+
+func (le LexerError) Error() string {
+	return fmt.Sprintf("(%s) %s", le.pos.String(), le.err.Error())
+}
 
 type Lexer struct {
 	pos    tokens.Position
 	reader *bufio.Reader
-	err    ErrorHandler
 }
 
-func NewLexer(reader *bufio.Reader, errHandler ErrorHandler) *Lexer {
+func NewLexer(reader *bufio.Reader) *Lexer {
 	return &Lexer{
 		pos:    tokens.Position{Line: 1, Column: 0},
 		reader: reader,
-		err:    errHandler,
 	}
 }
 
 func (l *Lexer) read() rune {
 	r, _, err := l.reader.ReadRune()
 	if err != nil {
-		l.err(l.pos, err.Error())
+		panic(LexerError{l.pos, err})
 	}
 	l.pos.Column++
 	return r
@@ -186,7 +192,7 @@ func (l *Lexer) Lex() (tokens.Position, tokens.Token, string) {
 			if err == io.EOF {
 				return l.pos, tokens.EOF, ""
 			}
-			l.err(l.pos, err.Error())
+			panic(LexerError{l.pos, err})
 		}
 		l.pos.Column++
 		if unicode.IsSpace(r) && r != '\n' {

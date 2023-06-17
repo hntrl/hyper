@@ -10,7 +10,7 @@ import (
 
 func setupParser(lit string) *Parser {
 	reader := bufio.NewReader(strings.NewReader(lit))
-	lexer := NewLexer(reader, errHandler)
+	lexer := NewLexer(reader)
 	return NewParser(lexer)
 }
 

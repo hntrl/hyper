@@ -8,11 +8,9 @@ import (
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
-var errHandler = func(pos tokens.Position, msg string) {}
-
 func setupLexer(lit string) Lexer {
 	reader := bufio.NewReader(strings.NewReader(lit))
-	return *NewLexer(reader, errHandler)
+	return *NewLexer(reader)
 }
 
 // lextIdent()
