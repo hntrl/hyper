@@ -14,13 +14,13 @@ type ContextPath string
 
 type ContextBuilder struct {
 	hostContextPath ContextPath
-	contexts        map[ContextPath]*Context
+	Contexts        map[ContextPath]*Context
 	interfaces      map[string]interface{}
 }
 
 func NewContextBuilder() *ContextBuilder {
 	return &ContextBuilder{
-		contexts:   make(map[ContextPath]*Context),
+		Contexts:   make(map[ContextPath]*Context),
 		interfaces: make(map[string]interface{}),
 	}
 }
@@ -35,7 +35,7 @@ func (bd *ContextBuilder) ParseContext(node ast.Manifest, path string) (*Context
 	if err != nil {
 		return nil, err
 	}
-	for _, ctx := range bd.contexts {
+	for _, ctx := range bd.Contexts {
 		for key := range ctx.unresolvedItems {
 			err := ctx.resolveItem(key)
 			if err != nil {
@@ -47,7 +47,7 @@ func (bd *ContextBuilder) ParseContext(node ast.Manifest, path string) (*Context
 			return nil, fmt.Errorf("cannot import %s: %s", ctx.Identifier, err.Error())
 		}
 	}
-	return bd.contexts[bd.hostContextPath], nil
+	return bd.Contexts[bd.hostContextPath], nil
 }
 func (bd *ContextBuilder) addContext(node ast.Manifest, path string) error {
 	cwd := filepath.Dir(path)
@@ -60,15 +60,16 @@ func (bd *ContextBuilder) addContext(node ast.Manifest, path string) error {
 		node.Context.Items = append(node.Context.Items, itemSet.Items...)
 	}
 	ctx := &Context{
-		Identifier:      node.Context.Name,
-		Path:            ContextPath(path),
-		Items:           make(map[string]ContextItem),
-		unresolvedItems: make(map[string]ast.Node),
-		selectors:       make(map[string]symbols.ScopeValue),
-		manifestNode:    node,
-		builder:         bd,
+		Identifier:       node.Context.Name,
+		Path:             ContextPath(path),
+		Items:            make(map[string]ContextItem),
+		ImportedContexts: make([]ContextPath, 0),
+		unresolvedItems:  make(map[string]ast.Node),
+		selectors:        make(map[string]symbols.ScopeValue),
+		manifestNode:     node,
+		builder:          bd,
 	}
-	bd.contexts[ctx.Path] = ctx
+	bd.Contexts[ctx.Path] = ctx
 	for _, contextItem := range node.Context.Items {
 		switch node := contextItem.Init.(type) {
 		case ast.ContextObject:
@@ -95,10 +96,10 @@ func (bd *ContextBuilder) HostContext() *Context {
 	return bd.GetContextByPath(string(bd.hostContextPath))
 }
 func (bd *ContextBuilder) GetContextByPath(path string) *Context {
-	return bd.contexts[ContextPath(path)]
+	return bd.Contexts[ContextPath(path)]
 }
 func (bd *ContextBuilder) GetContextByIdentifier(identifier string) *Context {
-	for _, ctx := range bd.contexts {
+	for _, ctx := range bd.Contexts {
 		if ctx.Identifier == identifier {
 			return ctx
 		}
@@ -107,13 +108,14 @@ func (bd *ContextBuilder) GetContextByIdentifier(identifier string) *Context {
 }
 
 type Context struct {
-	Identifier      string
-	Path            ContextPath
-	Items           map[string]ContextItem
-	unresolvedItems map[string]ast.Node
-	selectors       map[string]symbols.ScopeValue
-	manifestNode    ast.Manifest
-	builder         *ContextBuilder
+	Identifier       string
+	Path             ContextPath
+	Items            map[string]ContextItem
+	ImportedContexts []ContextPath
+	unresolvedItems  map[string]ast.Node
+	selectors        map[string]symbols.ScopeValue
+	manifestNode     ast.Manifest
+	builder          *ContextBuilder
 }
 
 func (ctx *Context) ImportPackage(source string) error {
@@ -136,6 +138,7 @@ func (ctx *Context) ImportPackage(source string) error {
 	if existingContext := ctx.builder.GetContextByIdentifier(manifest.Context.Name); existingContext != nil {
 		return fmt.Errorf("cannot import %s: context with identifier %s is already imported", source, manifest.Context.Name)
 	}
+	ctx.ImportedContexts = append(ctx.ImportedContexts, ContextPath(absPath))
 	return ctx.builder.addContext(*manifest, absPath)
 }
 
