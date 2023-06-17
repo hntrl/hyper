@@ -4,79 +4,72 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/runtime/resource"
 )
 
 type Process struct {
-	Context    *context.Context
-	ctxBuilder *context.ContextBuilder
-	resources  map[string]resource.Resource
+	Context          *domain.Context
+	ctxBuilder       *domain.ContextBuilder
+	initializedNodes []RuntimeNode
+	resources        map[string]resource.Resource
 }
 
 func NewProcess() *Process {
 	return &Process{
-		Context:    nil,
-		ctxBuilder: nil,
-		resources:  make(map[string]resource.Resource),
+		Context:          nil,
+		ctxBuilder:       nil,
+		initializedNodes: nil,
+		resources:        make(map[string]resource.Resource),
 	}
 }
 
-func (p *Process) UseContextBuilder(bd *context.ContextBuilder) error {
-	p.Context = bd.GetContext(bd.RootContext)
+func (p *Process) UseContextBuilder(bd *domain.ContextBuilder) error {
+	p.Context = bd.HostContext()
 	p.ctxBuilder = bd
 	return nil
 }
 
 func (p *Process) Attach() error {
-	for _, key := range p.Context.UsedPackages {
-		importedCtx := p.ctxBuilder.GetContext(key)
-		if importedCtx != nil {
-			for _, obj := range importedCtx.Items {
-				if node, ok := obj.(RuntimeNode); ok {
-					err := node.Attach(p)
-					if err != nil {
-						p.Close()
-						return err
-					}
-				}
+	p.initializedNodes = make([]RuntimeNode, 0)
+	// Initialize Host Context Resources
+	for _, item := range p.Context.Items {
+		if hostRuntimeNode, ok := item.HostItem.(RuntimeNode); ok {
+			err := hostRuntimeNode.Attach(p)
+			if err != nil {
+				p.Close()
+				return err
 			}
+			p.initializedNodes = append(p.initializedNodes, hostRuntimeNode)
 		}
 	}
-	for _, obj := range p.Context.Items {
-		if node, ok := obj.(RuntimeNode); ok {
-			err := node.Attach(p)
-			if err != nil {
-				p.Close()
-				return err
-			}
-		}
-		if res, ok := obj.(RuntimeResource); ok {
-			err := res.AttachResource(p)
-			if err != nil {
-				p.Close()
-				return err
+	// Initialize Imported Context Resources
+	for _, ctxPath := range p.Context.ImportedContexts {
+		ctx := p.ctxBuilder.GetContextByPath(string(ctxPath))
+		for _, item := range ctx.Items {
+			if remoteRuntimeNode, ok := item.RemoteItem.(RuntimeNode); ok {
+				err := remoteRuntimeNode.Attach(p)
+				if err != nil {
+					p.Close()
+					return err
+				}
+				p.initializedNodes = append(p.initializedNodes, remoteRuntimeNode)
 			}
 		}
 	}
 	return nil
 }
 func (p *Process) Close() error {
-	for _, ctx := range p.ctxBuilder.Contexts {
-		for _, obj := range ctx.Items {
-			if node, ok := obj.(RuntimeNode); ok {
-				err := node.Detach()
-				if err != nil {
-					return err
-				}
-			}
+	for _, node := range p.initializedNodes {
+		err := node.Detach()
+		if err != nil {
+			return err
 		}
 	}
-	for _, res := range p.resources {
-		res.Detach()
-	}
+	p.initializedNodes = nil
 	return nil
 }
+
 func (p *Process) Resource(key string, vPtr interface{}) error {
 	ptr := reflect.ValueOf(vPtr)
 	if ptr.Kind() != reflect.Ptr {
