@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/hntrl/hyper/internal/context"
+	"github.com/hntrl/hyper/internal/domain"
 	"github.com/hntrl/hyper/internal/interfaces"
 	"github.com/hntrl/hyper/internal/runtime"
 	"github.com/spf13/cobra"
@@ -31,11 +31,11 @@ var docCommand = &cobra.Command{
 		}
 		inPath := filepath.Join(dir, inFile)
 
-		manifestTree, err := context.ParseContextFromFile(inPath)
+		manifestTree, err := domain.ParseContextFromFile(inPath)
 		if err != nil {
 			panic(err)
 		}
-		builder := context.NewContextBuilder()
+		builder := domain.NewContextBuilder()
 		process := runtime.NewProcess()
 		interfaces.RegisterDefaults(builder, process)
 		ctx, err := builder.ParseContext(*manifestTree, inPath)
@@ -46,7 +46,7 @@ var docCommand = &cobra.Command{
 		fmt.Println("\nobjects:\n-------------")
 		w := tabwriter.NewWriter(os.Stdout, 1, 1, 2, ' ', 0)
 		for k, v := range ctx.Items {
-			fmt.Fprintf(w, "%s\t%T\n", k, v)
+			fmt.Fprintf(w, "%s\t%T\n", k, v.HostItem)
 		}
 		w.Flush()
 	},

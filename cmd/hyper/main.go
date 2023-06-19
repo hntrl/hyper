@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ var rootCmd = &cobra.Command{
 	Short: `A reliable backend framework for distributed systems`,
 }
 
-func Execute() {
+func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
