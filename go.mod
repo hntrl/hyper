@@ -6,7 +6,6 @@ require (
 	github.com/fatih/color v1.15.0
 	github.com/go-test/deep v1.1.0
 	github.com/kataras/blocks v0.0.7
-	github.com/kr/pretty v0.3.1
 	github.com/mitchellh/hashstructure v1.1.0
 	github.com/nats-io/nats.go v1.26.0
 	github.com/pkg/errors v0.9.1
@@ -20,14 +19,13 @@ require (
 	github.com/google/go-cmp v0.5.5 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/klauspost/compress v1.16.5 // indirect
-	github.com/kr/text v0.2.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
 	github.com/nats-io/nats-server/v2 v2.9.17 // indirect
 	github.com/nats-io/nkeys v0.4.4 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
-	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

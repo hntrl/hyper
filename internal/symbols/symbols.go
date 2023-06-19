@@ -1,6 +1,8 @@
 package symbols
 
 import (
+	"fmt"
+
 	"github.com/hntrl/hyper/internal/ast"
 	. "github.com/hntrl/hyper/internal/symbols/errors"
 )
@@ -19,8 +21,23 @@ type SymbolTableLoopState struct {
 
 func NewSymbolTable(root Object) *SymbolTable {
 	return &SymbolTable{
-		Root:      root,
-		Immutable: make(map[string]ScopeValue),
+		Root: root,
+		Immutable: map[string]ScopeValue{
+			"Bool":   Boolean,
+			"String": String,
+			"Number": Number,
+			"Float":  Float,
+			"Int":    Integer,
+			"Double": Double,
+			"print": NewFunction(FunctionOptions{
+				Arguments: []Class{Any},
+				Returns:   nil,
+				Handler: func(a ValueObject) error {
+					fmt.Println(a.Value())
+					return nil
+				},
+			}),
+		},
 		Local:     make(map[string]ScopeValue),
 		LoopState: nil,
 	}
@@ -45,6 +62,7 @@ func (st *SymbolTable) Clone() SymbolTable {
 		local[k] = v
 	}
 	return SymbolTable{
+		Root:      st.Root,
 		Immutable: immutable,
 		Local:     local,
 		LoopState: st.LoopState,
@@ -140,22 +158,22 @@ func (st *SymbolTable) ResolvePropertyList(node ast.PropertyList) (*MapValue, er
 	}
 	return mapValue, nil
 }
-func (st *SymbolTable) EvaluatePropertyList(node ast.PropertyList) (*MapClass, error) {
+func (st *SymbolTable) EvaluatePropertyList(node ast.PropertyList) (*ExpectedValueObject, error) {
 	class := NewMapClass()
 	for _, prop := range node {
 		switch propNode := prop.(type) {
 		case ast.Property:
-			propertyClass, err := st.EvaluateExpression(propNode.Init)
+			property, err := st.EvaluateExpression(propNode.Init)
 			if err != nil {
 				return nil, err
 			}
-			class.Properties[propNode.Key] = propertyClass
+			class.Properties[propNode.Key] = property.Class
 		case ast.SpreadElement:
-			propertyClass, err := st.EvaluateExpression(propNode.Init)
+			property, err := st.EvaluateExpression(propNode.Init)
 			if err != nil {
 				return nil, err
 			}
-			properties := propertyClass.Descriptors().Properties
+			properties := property.Class.Descriptors().Properties
 			if properties == nil {
 				return nil, NodeError(propNode, InvalidSpreadTarget, "cannot spread value without properties")
 			}
@@ -164,5 +182,5 @@ func (st *SymbolTable) EvaluatePropertyList(node ast.PropertyList) (*MapClass, e
 			}
 		}
 	}
-	return &class, nil
+	return &ExpectedValueObject{class}, nil
 }

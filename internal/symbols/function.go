@@ -7,6 +7,8 @@ import (
 	. "github.com/hntrl/hyper/internal/symbols/errors"
 )
 
+// @ 2.2.10 `Function` Object
+
 type Function struct {
 	argumentTypes []Class
 	returnType    Class
@@ -56,10 +58,10 @@ func makeFunctionHandlerFn(args []Class, returns Class, callback interface{}) (f
 	} else {
 		expectedSignature.returns = []reflect.Type{emptyErrorType}
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(args ...ValueObject) (ValueObject, error) {
 		argValues := make([]reflect.Value, len(args))
 		for idx, arg := range args {
@@ -86,7 +88,7 @@ func (st *SymbolTable) ResolveFunctionBlock(node ast.FunctionBlock) (*Function, 
 	if err != nil {
 		return nil, err
 	}
-	if !blockDoesReturn {
+	if returns != nil && !blockDoesReturn {
 		return nil, NodeError(node.Body, MissingReturn, "missing return")
 	}
 	return &Function{
@@ -102,7 +104,10 @@ func (st *SymbolTable) ResolveFunctionBlock(node ast.FunctionBlock) (*Function, 
 			if err != nil {
 				return nil, err
 			}
-			return obj, nil
+			if obj != nil {
+				return Construct(returns, obj)
+			}
+			return nil, nil
 		},
 	}, nil
 }
@@ -153,7 +158,7 @@ func (st *SymbolTable) EvaluateArgumentList(node ast.ArgumentList) ([]Class, err
 			if err != nil {
 				return nil, err
 			}
-			st.Local[argNode.Key] = class
+			st.Local[argNode.Key] = &ExpectedValueObject{class}
 			args[idx] = class
 		case ast.ArgumentObject:
 			mapClass := NewMapClass()
@@ -162,8 +167,8 @@ func (st *SymbolTable) EvaluateArgumentList(node ast.ArgumentList) ([]Class, err
 				if err != nil {
 					return nil, err
 				}
+				st.Local[item.Key] = &ExpectedValueObject{class}
 				mapClass.Properties[item.Key] = class
-				st.Local[item.Key] = class
 			}
 			args[idx] = mapClass
 		}

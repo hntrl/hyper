@@ -17,9 +17,9 @@ func (st *SymbolTable) EvaluateTypeExpression(node ast.TypeExpression) (Class, e
 	if !ok {
 		return nil, NodeError(node, InvalidClass, "cannot use %T in type expression", target)
 	}
-	// if node.IsPartial {
-
-	// }
+	if node.IsPartial {
+		class = NewPartialClass(class)
+	}
 	if node.IsArray {
 		class = NewArrayClass(class)
 	}
@@ -51,14 +51,14 @@ func (st *SymbolTable) ResolveExpression(node ast.Expression) (ValueObject, erro
 		return nil, NodeError(node, InvalidSyntaxTree, "unknown expression type %T", node)
 	}
 }
-func (st *SymbolTable) EvaluateExpression(node ast.Expression) (Class, error) {
+func (st *SymbolTable) EvaluateExpression(node ast.Expression) (*ExpectedValueObject, error) {
 	switch node := node.Init.(type) {
 	case ast.Literal:
 		lit, err := st.ResolveLiteral(node)
 		if err != nil {
 			return nil, err
 		}
-		return lit.Class(), nil
+		return &ExpectedValueObject{lit.Class()}, nil
 	case ast.ArrayExpression:
 		return st.EvaluateArrayExpression(node)
 	case ast.InstanceExpression:
@@ -97,7 +97,7 @@ func (st *SymbolTable) ResolveArrayExpression(node ast.ArrayExpression) (ValueOb
 	}
 	return array, nil
 }
-func (st *SymbolTable) EvaluateArrayExpression(node ast.ArrayExpression) (Class, error) {
+func (st *SymbolTable) EvaluateArrayExpression(node ast.ArrayExpression) (*ExpectedValueObject, error) {
 	arrayType, err := st.EvaluateTypeExpression(node.Init)
 	if err != nil {
 		return nil, err
@@ -108,12 +108,12 @@ func (st *SymbolTable) EvaluateArrayExpression(node ast.ArrayExpression) (Class,
 		if err != nil {
 			return nil, err
 		}
-		err = ShouldConstruct(arrayClass.itemClass, element)
+		err = ShouldConstruct(arrayClass.itemClass, element.Class)
 		if err != nil {
 			return nil, WrappedNodeError(elementNode, err)
 		}
 	}
-	return arrayClass, nil
+	return &ExpectedValueObject{arrayClass}, nil
 }
 
 func (st *SymbolTable) ResolveInstanceExpression(node ast.InstanceExpression) (ValueObject, error) {
@@ -131,7 +131,7 @@ func (st *SymbolTable) ResolveInstanceExpression(node ast.InstanceExpression) (V
 	}
 	return Construct(class, mapObject)
 }
-func (st *SymbolTable) EvaluateInstanceExpression(node ast.InstanceExpression) (Class, error) {
+func (st *SymbolTable) EvaluateInstanceExpression(node ast.InstanceExpression) (*ExpectedValueObject, error) {
 	target, err := st.ResolveSelector(node.Selector)
 	if err != nil {
 		return nil, err
@@ -140,15 +140,15 @@ func (st *SymbolTable) EvaluateInstanceExpression(node ast.InstanceExpression) (
 	if !ok {
 		return nil, NodeError(node, InvalidInstanceableTarget, "%s is not instanceable", strings.Join(node.Selector.Members, "."))
 	}
-	mapObject, err := st.EvaluatePropertyList(node.Properties)
+	expectedMap, err := st.EvaluatePropertyList(node.Properties)
 	if err != nil {
 		return nil, err
 	}
-	err = ShouldConstruct(class, mapObject)
+	err = ShouldConstruct(class, expectedMap.Class)
 	if err != nil {
 		return nil, WrappedNodeError(node, err)
 	}
-	return class, nil
+	return &ExpectedValueObject{class}, nil
 }
 
 func (st *SymbolTable) ResolveUnaryExpression(node ast.UnaryExpression) (ValueObject, error) {
@@ -189,24 +189,24 @@ func (st *SymbolTable) ResolveUnaryExpression(node ast.UnaryExpression) (ValueOb
 		return nil, NodeError(node, BadUnaryOperator, "unknown unary property %s", node.Operator)
 	}
 }
-func (st *SymbolTable) EvaluateUnaryExpression(node ast.UnaryExpression) (Class, error) {
-	class, err := st.EvaluateExpression(node.Init)
+func (st *SymbolTable) EvaluateUnaryExpression(node ast.UnaryExpression) (*ExpectedValueObject, error) {
+	expectedValue, err := st.EvaluateExpression(node.Init)
 	if err != nil {
 		return nil, err
 	}
 	switch node.Operator {
 	case tokens.ADD, tokens.SUB:
-		err = ShouldConstruct(Number, class)
+		err = ShouldConstruct(Number, expectedValue.Class)
 		if err != nil {
 			return nil, WrappedNodeError(node, err)
 		}
-		return class, nil
+		return &ExpectedValueObject{expectedValue.Class}, nil
 	case tokens.NOT:
-		err = ShouldConstruct(Boolean, class)
+		err = ShouldConstruct(Boolean, expectedValue.Class)
 		if err != nil {
 			return nil, WrappedNodeError(node, err)
 		}
-		return Boolean, nil
+		return &ExpectedValueObject{Boolean}, nil
 	default:
 		return nil, NodeError(node, BadUnaryOperator, "unknown unary property %s", node.Operator)
 	}
@@ -224,13 +224,22 @@ func (st *SymbolTable) ResolveBinaryExpression(node ast.BinaryExpression) (Value
 	if err != nil {
 		return nil, err
 	}
-	obj, err := Operate(node.Operator, left, right)
-	if err != nil {
-		return nil, WrappedNodeError(node, err)
+	if node.Operator.IsOperator() {
+		obj, err := Operate(node.Operator, left, right)
+		if err != nil {
+			return nil, WrappedNodeError(node, err)
+		}
+		return obj, nil
+	} else if node.Operator.IsComparableOperator() {
+		result, err := Compare(node.Operator, left, right)
+		if err != nil {
+			return nil, WrappedNodeError(node, err)
+		}
+		return BooleanValue(result), nil
 	}
-	return obj, nil
+	return nil, NodeError(node, UndefinedOperator, "%s operator not defined between %s and %s", node.Operator, left.Class().Descriptors().Name, right.Class().Descriptors().Name)
 }
-func (st *SymbolTable) EvaluateBinaryExpression(node ast.BinaryExpression) (Class, error) {
+func (st *SymbolTable) EvaluateBinaryExpression(node ast.BinaryExpression) (*ExpectedValueObject, error) {
 	if !node.Operator.IsOperator() && !node.Operator.IsComparableOperator() {
 		return nil, NodeError(node, InvalidOperator, "invalid binary operator %s", node.Operator)
 	}
@@ -242,14 +251,20 @@ func (st *SymbolTable) EvaluateBinaryExpression(node ast.BinaryExpression) (Clas
 	if err != nil {
 		return nil, err
 	}
-	err = ShouldOperate(node.Operator, left, right)
-	if err != nil {
-		return nil, WrappedNodeError(node, err)
+	if node.Operator.IsOperator() {
+		err = ShouldOperate(node.Operator, left.Class, right.Class)
+		if err != nil {
+			return nil, WrappedNodeError(node, err)
+		}
+		return &ExpectedValueObject{left.Class}, nil
+	} else if node.Operator.IsComparableOperator() {
+		err = ShouldCompare(node.Operator, left.Class, right.Class)
+		if err != nil {
+			return nil, WrappedNodeError(node, err)
+		}
+		return &ExpectedValueObject{Boolean}, nil
 	}
-	if node.Operator.IsComparableOperator() {
-		return Boolean, nil
-	}
-	return left, nil
+	return nil, NodeError(node, UndefinedOperator, "%s operator not defined between %s and %s", node.Operator, left.Class.Descriptors().Name, right.Class.Descriptors().Name)
 }
 
 func resolveValueExpressionMember(st *SymbolTable, value ScopeValue, member string) (ScopeValue, error) {
@@ -303,7 +318,9 @@ func evaluateValueExpressionMember(st *SymbolTable, value ScopeValue, member str
 		}
 		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Descriptors().Name, member)
 	case ValueObject:
-		descriptors := object.Class().Descriptors()
+		return evaluateValueExpressionMember(st, &ExpectedValueObject{object.Class()}, member)
+	case *ExpectedValueObject:
+		descriptors := object.Class.Descriptors()
 		if descriptors.Prototype != nil {
 			classMethod, ok := descriptors.Prototype[member]
 			if ok {
@@ -313,10 +330,10 @@ func evaluateValueExpressionMember(st *SymbolTable, value ScopeValue, member str
 		if descriptors.Properties != nil {
 			property, ok := descriptors.Properties[member]
 			if ok {
-				return property.PropertyClass, nil
+				return &ExpectedValueObject{property.PropertyClass}, nil
 			}
 		}
-		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Class().Descriptors().Name, member)
+		return nil, StandardError(UnknownProperty, "%s has no property %s", object.Class.Descriptors().Name, member)
 	case Object:
 		val, err := object.Get(member)
 		if err != nil {
@@ -366,7 +383,7 @@ func resolveValueExpressionCallMember(st *SymbolTable, value ScopeValue, node as
 		return nil, NodeError(node, InvalidCallExpression, "%T is not callable", object)
 	}
 }
-func evaluateValueExpressionCallMember(st *SymbolTable, value ScopeValue, node ast.CallExpression) (Class, error) {
+func evaluateValueExpressionCallMember(st *SymbolTable, value ScopeValue, node ast.CallExpression) (*ExpectedValueObject, error) {
 	switch object := value.(type) {
 	case Callable:
 		callableArgs := object.Arguments()
@@ -374,29 +391,42 @@ func evaluateValueExpressionCallMember(st *SymbolTable, value ScopeValue, node a
 			return nil, StandardError(InvalidArgumentLength, "expected %d arguments, got %d", len(callableArgs), len(node.Arguments))
 		}
 		for idx, arg := range node.Arguments {
-			argClass, err := st.EvaluateExpression(arg)
+			expectedArg, err := st.EvaluateExpression(arg)
 			if err != nil {
 				return nil, err
 			}
-			err = ShouldConstruct(callableArgs[idx], argClass)
+			err = ShouldConstruct(callableArgs[idx], expectedArg.Class)
 			if err != nil {
 				return nil, WrappedNodeError(node, err)
 			}
 		}
-		return object.Returns(), nil
+		return &ExpectedValueObject{object.Returns()}, nil
+	case *ClassMethod:
+		methodArgs := object.ArgumentTypes
+		for idx, arg := range node.Arguments {
+			expectedArg, err := st.EvaluateExpression(arg)
+			if err != nil {
+				return nil, err
+			}
+			err = ShouldConstruct(methodArgs[idx], expectedArg.Class)
+			if err != nil {
+				return nil, WrappedNodeError(node, err)
+			}
+		}
+		return &ExpectedValueObject{object.ReturnType}, nil
 	case Class:
 		if len(node.Arguments) != 1 {
 			return nil, StandardError(InvalidClassConstruction, "invalid class construction")
 		}
-		argClass, err := st.EvaluateExpression(node.Arguments[0])
+		expectedArg, err := st.EvaluateExpression(node.Arguments[0])
 		if err != nil {
 			return nil, err
 		}
-		err = ShouldConstruct(object, argClass)
+		err = ShouldConstruct(object, expectedArg.Class)
 		if err != nil {
 			return nil, WrappedNodeError(node, err)
 		}
-		return object, nil
+		return &ExpectedValueObject{object}, nil
 	default:
 		return nil, NodeError(node, InvalidCallExpression, "%T is not callable", object)
 	}
@@ -411,6 +441,9 @@ func (st *SymbolTable) ResolveValueExpression(node ast.ValueExpression) (ValueOb
 	if err != nil {
 		return nil, err
 	}
+	if current == nil {
+		return nil, NodeError(node, UnknownSelector, "unknown selector %s", firstMember)
+	}
 	for _, memberNode := range node.Members[1:] {
 		switch member := memberNode.Init.(type) {
 		case string:
@@ -421,7 +454,7 @@ func (st *SymbolTable) ResolveValueExpression(node ast.ValueExpression) (ValueOb
 		case ast.CallExpression:
 			current, err = resolveValueExpressionCallMember(st, current, member)
 			if err != nil {
-				return nil, WrappedNodeError(node, err)
+				return nil, err
 			}
 		case ast.IndexExpression:
 			currentValueObject, ok := current.(ValueObject)
@@ -455,7 +488,7 @@ func (st *SymbolTable) ResolveValueExpression(node ast.ValueExpression) (ValueOb
 	}
 	return valueObj, nil
 }
-func (st *SymbolTable) EvaluateValueExpression(node ast.ValueExpression) (Class, error) {
+func (st *SymbolTable) EvaluateValueExpression(node ast.ValueExpression) (*ExpectedValueObject, error) {
 	firstMember, ok := node.Members[0].Init.(string)
 	if !ok {
 		return nil, NodeError(node, InvalidValueExpression, "invalid value expression")
@@ -464,32 +497,53 @@ func (st *SymbolTable) EvaluateValueExpression(node ast.ValueExpression) (Class,
 	if err != nil {
 		return nil, err
 	}
+	if current == nil {
+		return nil, NodeError(node, UnknownSelector, "unknown selector %s", firstMember)
+	}
 	for _, memberNode := range node.Members[1:] {
 		switch member := memberNode.Init.(type) {
 		case string:
 			current, err = evaluateValueExpressionMember(st, current, member)
+			if err != nil {
+				return nil, WrappedNodeError(node, err)
+			}
 		case ast.CallExpression:
 			current, err = evaluateValueExpressionCallMember(st, current, member)
+			if err != nil {
+				return nil, err
+			}
 		case ast.IndexExpression:
-			currentClass, ok := current.(Class)
+			currentObject, ok := current.(*ExpectedValueObject)
 			if !ok {
 				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable %T", current)
 			}
-			enumerable := currentClass.Descriptors().Enumerable
+			enumerable := currentObject.Class.Descriptors().Enumerable
 			if enumerable == nil {
-				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", currentClass.Descriptors().Name)
+				return nil, NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", currentObject.Class.Descriptors().Name)
 			}
-			err = st.EvaluateIndexExpression(member, currentClass)
-		}
-		if err != nil {
-			return nil, WrappedNodeError(node, err)
+			err = st.EvaluateIndexExpression(member, currentObject)
+			if err != nil {
+				return nil, WrappedNodeError(node, err)
+			}
+			if member.IsRange {
+				current = &ExpectedValueObject{currentObject.Class}
+			} else {
+				if arrayClass, ok := currentObject.Class.(ArrayClass); ok {
+					current = &ExpectedValueObject{arrayClass.itemClass}
+				} else {
+					current = &ExpectedValueObject{currentObject.Class}
+				}
+			}
 		}
 	}
-	class, ok := current.(Class)
+	if valueObject, ok := current.(ValueObject); ok {
+		current = &ExpectedValueObject{valueObject.Class()}
+	}
+	expected, ok := current.(*ExpectedValueObject)
 	if !ok {
 		return nil, NodeError(node, InvalidValueExpression, "invalid value expression")
 	}
-	return class, nil
+	return expected, nil
 }
 
 func (st *SymbolTable) ResolveIndexExpression(node ast.IndexExpression, target ValueObject) (int, int, error) {
@@ -529,27 +583,27 @@ func (st *SymbolTable) ResolveIndexExpression(node ast.IndexExpression, target V
 	}
 	return startIndex, -1, nil
 }
-func (st *SymbolTable) EvaluateIndexExpression(node ast.IndexExpression, target Class) error {
-	enumerable := target.Descriptors().Enumerable
+func (st *SymbolTable) EvaluateIndexExpression(node ast.IndexExpression, target *ExpectedValueObject) error {
+	enumerable := target.Class.Descriptors().Enumerable
 	if enumerable == nil {
-		return NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", target.Descriptors().Name)
+		return NodeError(node, InvalidIndexTarget, "cannot take index of non-enumerable class %s", target.Class.Descriptors().Name)
 	}
 	if node.Left != nil {
-		leftClass, err := st.EvaluateExpression(*node.Left)
+		left, err := st.EvaluateExpression(*node.Left)
 		if err != nil {
 			return err
 		}
-		if _, ok := leftClass.(IntegerClass); !ok {
-			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", leftClass.Descriptors().Name)
+		if _, ok := left.Class.(IntegerClass); !ok {
+			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", left.Class.Descriptors().Name)
 		}
 	}
 	if node.Right != nil {
-		rightClass, err := st.EvaluateExpression(*node.Right)
+		right, err := st.EvaluateExpression(*node.Right)
 		if err != nil {
 			return err
 		}
-		if _, ok := rightClass.(IntegerClass); !ok {
-			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", rightClass.Descriptors().Name)
+		if _, ok := right.Class.(IntegerClass); !ok {
+			return NodeError(node, InvalidIndex, "index must be an Integer, got %s", right.Class.Descriptors().Name)
 		}
 	}
 	return nil
