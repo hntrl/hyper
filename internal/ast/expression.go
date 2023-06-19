@@ -449,6 +449,7 @@ func orderBinaryExpression(expr Expression) Expression {
 						Left: orderBinaryExpression(Expression{
 							pos: rightBin.pos,
 							Init: BinaryExpression{
+								pos:      bin.pos,
 								Left:     bin.Left,
 								Operator: bin.Operator,
 								Right:    rightBin.Left,
