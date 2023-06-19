@@ -8,6 +8,16 @@ import (
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
+var (
+	Any = AnyClass{}
+)
+
+type AnyClass struct{}
+
+func (AnyClass) Descriptors() *ClassDescriptors {
+	return nil
+}
+
 // @ 2.2.1 `nil` Primitive
 
 var (
@@ -204,18 +214,17 @@ var (
 				return NumberValue(val), nil
 			}),
 			Constructor(Integer, func(val IntegerValue) (NumberValue, error) {
-				// ? is this allowed
 				return NumberValue(val), nil
 			}),
 		},
-		Operators:   NumericOperators,
-		Comparators: NumericComparators,
 	}
 )
 
 type NumberClass struct{}
 
 func (NumberClass) Descriptors() *ClassDescriptors {
+	NumberDescriptors.Operators = NumericOperators
+	NumberDescriptors.Comparators = NumericComparators
 	return NumberDescriptors
 }
 
@@ -251,6 +260,8 @@ var (
 type DoubleClass struct{}
 
 func (DoubleClass) Descriptors() *ClassDescriptors {
+	DoubleDescriptors.Operators = NumericOperators
+	DoubleDescriptors.Comparators = NumericComparators
 	return DoubleDescriptors
 }
 
@@ -278,14 +289,14 @@ var (
 				return FloatValue(val), nil
 			}),
 		},
-		Operators:   NumericOperators,
-		Comparators: NumericComparators,
 	}
 )
 
 type FloatClass struct{}
 
 func (FloatClass) Descriptors() *ClassDescriptors {
+	FloatDescriptors.Operators = NumericOperators
+	FloatDescriptors.Comparators = NumericComparators
 	return FloatDescriptors
 }
 
@@ -313,14 +324,14 @@ var (
 				return IntegerValue(val), nil
 			}),
 		},
-		Operators:   NumericOperators,
-		Comparators: NumericComparators,
 	}
 )
 
 type IntegerClass struct{}
 
 func (IntegerClass) Descriptors() *ClassDescriptors {
+	IntegerDescriptors.Operators = NumericOperators
+	IntegerDescriptors.Comparators = NumericComparators
 	return IntegerDescriptors
 }
 
@@ -400,7 +411,80 @@ func (mv *MapValue) Map() map[string]ValueObject {
 	return mv.data
 }
 
-// @ 2.2.6 `Nilable` Object
+// @ 2.2.6 `Partial` Object
+
+type PartialClass struct {
+	parentClass Class
+	descriptors *ClassDescriptors `hash:"ignore"`
+}
+
+// Returns a new class that inherits all the properties of the parent class but those properties are wrapped in nilable classes. Panics if the parent class does not have properties.
+func NewPartialClass(parentClass Class) PartialClass {
+	parentDescriptors := parentClass.Descriptors()
+	partialClass := PartialClass{parentClass: parentClass}
+	partialClass.descriptors = &ClassDescriptors{
+		Name: fmt.Sprintf("Partial<%s>", parentDescriptors.Name),
+		Constructors: ClassConstructorSet{
+			Constructor(Map, func(a *MapValue) (*PartialValue, error) {
+				constructedMap := make(map[string]*NilableValue)
+				for key, val := range a.Map() {
+					constructedMap[key] = val.(*NilableValue)
+				}
+				return &PartialValue{
+					partialClass: partialClass,
+					data:         constructedMap,
+				}, nil
+			}),
+		},
+		Properties: ClassPropertyMap{},
+	}
+	properties := parentDescriptors.Properties
+	if properties == nil {
+		panic("cannot create partial class without properties")
+	}
+	for key, property := range properties {
+		var propertyClass NilableClass
+		if nilablePropertyClass, ok := property.PropertyClass.(NilableClass); ok {
+			propertyClass = nilablePropertyClass
+		} else {
+			propertyClass = NewNilableClass(property.PropertyClass)
+		}
+		partialClass.descriptors.Properties[key] = PropertyAttributes(PropertyOptions{
+			Class: propertyClass,
+			Getter: func(obj *PartialValue) (ValueObject, error) {
+				return obj.data[key], nil
+			},
+			Setter: func(obj *PartialValue, val *NilableValue) error {
+				dereferencedVal := *val
+				obj.data[key] = &dereferencedVal
+				return nil
+			},
+		})
+	}
+	return partialClass
+}
+
+func (pc PartialClass) Descriptors() *ClassDescriptors {
+	return pc.descriptors
+}
+
+type PartialValue struct {
+	partialClass PartialClass
+	data         map[string]*NilableValue
+}
+
+func (pv *PartialValue) Class() Class {
+	return pv.partialClass
+}
+func (pv *PartialValue) Value() interface{} {
+	out := make(map[string]interface{})
+	for key, value := range pv.data {
+		out[key] = value.Value()
+	}
+	return out
+}
+
+// @ 2.2.7 `Nilable` Object
 
 type NilableClass struct {
 	parentClass Class
@@ -413,26 +497,32 @@ func NewNilableClass(parentClass Class) NilableClass {
 	nilableClass.descriptors = &ClassDescriptors{
 		Name: fmt.Sprintf("%s?", parentDescriptors.Name),
 		Constructors: ClassConstructorSet{
-			Constructor(Nil, func() (*NilableValue, error) {
+			Constructor(Nil, func(a ValueObject) (*NilableValue, error) {
 				return &NilableValue{
 					nilableClass: nilableClass,
 					setValue:     nil,
 				}, nil
 			}),
+			Constructor(parentClass, func(a ValueObject) (*NilableValue, error) {
+				return &NilableValue{
+					nilableClass: nilableClass,
+					setValue:     a,
+				}, nil
+			}),
 		},
 		Comparators: ClassComparatorSet{
-			Comparator(Nil, tokens.EQUALS, func(a *NilableValue) (bool, error) {
+			Comparator(Nil, tokens.EQUALS, func(a, b *NilableValue) (bool, error) {
 				return a.setValue == nil, nil
 			}),
-			Comparator(Nil, tokens.NOT_EQUALS, func(a *NilableValue) (bool, error) {
+			Comparator(Nil, tokens.NOT_EQUALS, func(a, b *NilableValue) (bool, error) {
 				return a.setValue != nil, nil
 			}),
 		},
 		Properties: parentDescriptors.Properties,
 	}
 	if parentDescriptors.Constructors != nil {
-		for hash, constructor := range parentDescriptors.Constructors {
-			nilableClass.descriptors.Constructors[hash] = &ClassConstructor{
+		for _, constructor := range parentDescriptors.Constructors {
+			nilableClass.descriptors.Constructors = append(nilableClass.descriptors.Constructors, &ClassConstructor{
 				forClass: constructor.forClass,
 				handler: func(val ValueObject) (ValueObject, error) {
 					constructedVal, err := constructor.handler(val)
@@ -441,13 +531,13 @@ func NewNilableClass(parentClass Class) NilableClass {
 					}
 					return &NilableValue{nilableClass, constructedVal}, nil
 				},
-			}
+			})
 		}
 	}
 	if parentDescriptors.Operators != nil {
 		parentDescriptors.Operators = ClassOperatorSet{}
-		for hash, operator := range parentDescriptors.Operators {
-			nilableClass.descriptors.Operators[hash] = &ClassOperator{
+		for _, operator := range parentDescriptors.Operators {
+			nilableClass.descriptors.Operators = append(nilableClass.descriptors.Operators, &ClassOperator{
 				operandClass: operator.operandClass,
 				token:        operator.token,
 				handler: func(a ValueObject, b ValueObject) (ValueObject, error) {
@@ -461,12 +551,12 @@ func NewNilableClass(parentClass Class) NilableClass {
 					}
 					return &NilableValue{nilableClass, computedVal}, nil
 				},
-			}
+			})
 		}
 	}
 	if parentDescriptors.Comparators != nil {
-		for hash, comparator := range parentDescriptors.Comparators {
-			nilableClass.descriptors.Comparators[hash] = &ClassComparator{
+		for _, comparator := range parentDescriptors.Comparators {
+			nilableClass.descriptors.Comparators = append(nilableClass.descriptors.Comparators, &ClassComparator{
 				operandClass: comparator.operandClass,
 				token:        comparator.token,
 				handler: func(a ValueObject, b ValueObject) (bool, error) {
@@ -476,7 +566,7 @@ func NewNilableClass(parentClass Class) NilableClass {
 					}
 					return comparator.handler(nilable.setValue, b)
 				},
-			}
+			})
 		}
 	}
 	if parentDescriptors.Enumerable != nil {
@@ -560,7 +650,7 @@ func (no *NilableValue) ValueObject() ValueObject {
 	return no.setValue
 }
 
-// @ 2.2.7 `Array` Object
+// @ 2.2.8 `Array` Object
 
 type ArrayClass struct {
 	itemClass   Class
@@ -575,13 +665,16 @@ func NewArrayClass(itemClass Class) ArrayClass {
 	arrayClass.descriptors = &ClassDescriptors{
 		Name: fmt.Sprintf("[]%s", itemClass.Descriptors().Name),
 		Constructors: ClassConstructorSet{
-			Constructor(arrayClass, func(arr ArrayValue) (ArrayValue, error) {
+			Constructor(arrayClass, func(arr *ArrayValue) (*ArrayValue, error) {
 				newArray := ArrayValue{parentClass: arr.parentClass, items: make([]ValueObject, len(arr.items))}
 				copy(arr.items, newArray.items)
-				return newArray, nil
+				return &newArray, nil
 			}),
 		},
 		Enumerable: NewClassEnumerationRules(ClassEnumerationOptions{
+			GetLength: func(arr *ArrayValue) (int, error) {
+				return len(arr.items), nil
+			},
 			GetIndex: func(arr *ArrayValue, index int) (ValueObject, error) {
 				if index > len(arr.items) || index < 0 {
 					return nil, StandardError(IndexOutOfRange, "index out of range")
@@ -623,7 +716,7 @@ func NewArrayClass(itemClass Class) ArrayClass {
 					}, nil
 				}
 			},
-			SetRange: func(arr *ArrayValue, start int, end int, insertArr ArrayValue) error {
+			SetRange: func(arr *ArrayValue, start int, end int, insertArr *ArrayValue) error {
 				if start > len(arr.items) || start < 0 {
 					return StandardError(IndexOutOfRange, "start index out of range")
 				}
@@ -640,7 +733,7 @@ func NewArrayClass(itemClass Class) ArrayClass {
 			},
 		}),
 		Prototype: ClassPrototypeMap{
-			"append": NewClassMethod(ClassMethodOptions{
+			"push": NewClassMethod(ClassMethodOptions{
 				Class:     arrayClass,
 				Arguments: []Class{arrayClass.itemClass},
 				Returns:   nil,
@@ -707,7 +800,7 @@ func (av *ArrayValue) Slice() []ValueObject {
 	return out
 }
 
-// @ 2.2.8 `Error` Object
+// @ 2.2.9 `Error` Object
 
 var (
 	Error            = ErrorClass{}

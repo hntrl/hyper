@@ -21,6 +21,8 @@ type Object interface {
 
 // @ 2.1.2 `ValueObject` Type
 
+var emptyValueObjectType = reflect.TypeOf((*ValueObject)(nil)).Elem()
+
 type ValueObject interface {
 	// The serialized version of the value object
 	Value() interface{}
@@ -28,7 +30,10 @@ type ValueObject interface {
 	Class() Class
 }
 
-var emptyValueObjectType = reflect.TypeOf((*ValueObject)(nil))
+// Used for semantic analysis to logically separate Class and ValueObject when checking.
+type ExpectedValueObject struct {
+	Class Class
+}
 
 // Converts a byte array into a ValueObject
 func ValueFromBytes(bytes []byte) (ValueObject, error) {
@@ -133,7 +138,7 @@ func classHash(class Class) ClassHash {
 	return ClassHash(hash)
 }
 
-func classEquals(a, b Class) bool {
+func ClassEquals(a, b Class) bool {
 	return classHash(a) == classHash(b)
 }
 
@@ -213,23 +218,32 @@ func makeClassConstructorFn(forClass Class, callback interface{}) (classConstruc
 		args:    []reflect.Type{emptyValueObjectType},
 		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a)}
 		returnValues := cb.Call(args)
-		value := returnValues[0].Interface().(ValueObject)
-		err := returnValues[1].Interface().(error)
+		value, _ := returnValues[0].Interface().(ValueObject)
+		err, _ := returnValues[1].Interface().(error)
 		return value, err
 	}, nil
 }
 
 // Returns no error if a class can be constructed into another class.
 func ShouldConstruct(target, value Class) error {
-	if classEquals(target, value) {
+	if ClassEquals(target, value) {
 		return nil
+	}
+	if value == nil {
+		value = Nil
+	}
+	if _, ok := target.(AnyClass); ok {
+		return nil
+	}
+	if nilable, ok := value.(NilableClass); ok {
+		return ShouldConstruct(target, nilable.parentClass)
 	}
 	if targetArrayClass, ok := target.(ArrayClass); ok {
 		// If both the target class and the value's class are an array, redo ShouldConstruct with their parent types
@@ -237,55 +251,66 @@ func ShouldConstruct(target, value Class) error {
 			return ShouldConstruct(targetArrayClass.itemClass, valueArrayClass.itemClass)
 		}
 	}
-	if valueMapClass, ok := value.(MapClass); ok {
-		// If the value class is a Map, it should construct IF:
-		//	1. The target class has a `Properties` descriptor
-		//  2. The target class has a map constructor
-		//  3. The map doesn't have any properties that dont exist on the target class
-		//  4. The map isn't missing any properties that are defined on the target class
-		//  5. The map's properties are constructable to the target class's fields
-		targetDescriptors := target.Descriptors()
-		if targetProperties := targetDescriptors.Properties; targetProperties != nil {
-			if constructor := targetDescriptors.Constructors.Get(valueMapClass); constructor != nil {
-				for key := range valueMapClass.Properties {
-					if _, ok := targetProperties[key]; !ok {
-						return StandardError(UnknownProperty, "unknown property %s", key)
-					}
-				}
-				for key, targetProperty := range targetProperties {
-					valuePropertyClass := valueMapClass.Properties[key]
-					if valuePropertyClass == nil {
-						if _, ok := targetProperty.PropertyClass.(*NilableClass); !ok {
-							return StandardError(MissingProperty, "missing property %s", key)
+	if constructors := target.Descriptors().Constructors; constructors != nil {
+		if valueMapClass, ok := value.(MapClass); ok {
+			// If the value class is a Map, it should construct IF:
+			//	1. The target class has a `Properties` descriptor
+			//  2. The target class has a map constructor
+			//  3. The map isn't missing any properties that are defined on the target class
+			//  4. The map's properties are constructable to the target class's fields
+			targetDescriptors := target.Descriptors()
+			if targetProperties := targetDescriptors.Properties; targetProperties != nil {
+				if constructor := targetDescriptors.Constructors.Get(Map); constructor != nil {
+					// for key := range valueMapClass.Properties {
+					// 	if _, ok := targetProperties[key]; !ok {
+					// 		return StandardError(UnknownProperty, "unknown property %s", key)
+					// 	}
+					// }
+					for key, targetProperty := range targetProperties {
+						valuePropertyClass := valueMapClass.Properties[key]
+						if valuePropertyClass == nil {
+							if _, ok := targetProperty.PropertyClass.(NilableClass); !ok {
+								return StandardError(MissingProperty, "missing property %s", key)
+							}
+						} else {
+							err := ShouldConstruct(targetProperty.PropertyClass, valuePropertyClass)
+							if err != nil {
+								return err
+							}
 						}
-					} else {
-						err := ShouldConstruct(targetProperty.PropertyClass, valuePropertyClass)
-						if err != nil {
-							return err
-						}
 					}
+					return nil
 				}
-				return nil
 			}
+		} else if constructor := constructors.Get(value); constructor != nil {
+			// If the target class has constructors defined, redo ShouldConstruct as if the value was a map
+			return nil
+		} else if properties := value.Descriptors().Properties; properties != nil {
+			// If the value class has properties, redo ShouldConstruct as if the value was a map
+			propertyClassMap := map[string]Class{}
+			for key, attributes := range properties {
+				propertyClassMap[key] = attributes.PropertyClass
+			}
+			return ShouldConstruct(target, MapClass{Properties: propertyClassMap})
 		}
-	}
-	if constructor := target.Descriptors().Constructors.Get(value); constructor != nil {
-		// If the target class has a constructor defined for the value's class, it should construct
-		return nil
-	}
-	if properties := value.Descriptors().Properties; properties != nil {
-		// If the value class has properties, redo ShouldConstruct as if the value was a map
-		propertyClassMap := map[string]Class{}
-		for key, attributes := range properties {
-			propertyClassMap[key] = attributes.PropertyClass
-		}
-		return ShouldConstruct(target, MapClass{Properties: propertyClassMap})
 	}
 	return StandardError(CannotConstruct, "cannot construct %s from %s", target.Descriptors().Name, value.Descriptors().Name)
 }
 func Construct(target Class, value ValueObject) (ValueObject, error) {
-	if classEquals(target, value.Class()) {
+	if ClassEquals(target, value.Class()) {
 		return value, nil
+	}
+	if value == nil {
+		value = NilValue{}
+	}
+	if _, ok := target.(AnyClass); ok {
+		return value, nil
+	}
+	if nilable, ok := value.(*NilableValue); ok {
+		if nilable.setValue == nil {
+			return nil, StandardError(CannotConstruct, "cannot construct %s from nil", target.Descriptors().Name)
+		}
+		return Construct(target, nilable.setValue)
 	}
 	if targetArrayClass, ok := target.(ArrayClass); ok {
 		if valueArray, ok := value.(*ArrayValue); ok {
@@ -301,56 +326,56 @@ func Construct(target Class, value ValueObject) (ValueObject, error) {
 			return newValueArray, nil
 		}
 	}
-	if valueMap, ok := value.(*MapValue); ok {
-		targetDescriptors := target.Descriptors()
-		if targetProperties := targetDescriptors.Properties; targetProperties != nil {
-			if constructor := targetDescriptors.Constructors.Get(valueMap.Class()); constructor != nil {
-				for key := range valueMap.data {
-					if _, ok := targetProperties[key]; !ok {
-						return nil, StandardError(UnknownProperty, "unknown property %s", key)
-					}
-				}
-				validationErrors := make(map[string]error)
-				constructedMapValue := NewMapValue()
-				for key, targetProperty := range targetDescriptors.Properties {
-					value := valueMap.Get(key)
-					if value == nil {
-						if targetNilable, ok := targetProperty.PropertyClass.(NilableClass); ok {
-							constructedMapValue.Set(key, NewNilableValue(targetNilable, nil))
+	if constructors := target.Descriptors().Constructors; constructors != nil {
+		if valueMap, ok := value.(*MapValue); ok {
+			targetDescriptors := target.Descriptors()
+			if targetProperties := targetDescriptors.Properties; targetProperties != nil {
+				if constructor := constructors.Get(Map); constructor != nil {
+					// for key := range valueMap.data {
+					// 	if _, ok := targetProperties[key]; !ok {
+					// 		return nil, StandardError(UnknownProperty, "unknown property %s", key)
+					// 	}
+					// }
+					validationErrors := make(map[string]error)
+					constructedMapValue := NewMapValue()
+					for key, targetProperty := range targetDescriptors.Properties {
+						value := valueMap.Get(key)
+						if value == nil {
+							if targetNilable, ok := targetProperty.PropertyClass.(NilableClass); ok {
+								constructedMapValue.Set(key, NewNilableValue(targetNilable, nil))
+							} else {
+								validationErrors[key] = StandardError(MissingProperty, "missing property %s", key)
+							}
 						} else {
-							validationErrors[key] = StandardError(MissingProperty, "missing property %s", key)
+							constructedValue, err := Construct(targetProperty.PropertyClass, value)
+							if err != nil {
+								return nil, err
+							}
+							constructedMapValue.Set(key, constructedValue)
 						}
-					} else {
-						constructedValue, err := Construct(targetProperty.PropertyClass, value)
-						if err != nil {
-							return nil, err
+					}
+					if len(validationErrors) > 0 {
+						return nil, ErrorValue{
+							Name: "ValidationError",
+							Data: validationErrors,
 						}
-						constructedMapValue.Set(key, constructedValue)
 					}
+					return constructor.handler(constructedMapValue)
 				}
-				if len(validationErrors) > 0 {
-					return nil, ErrorValue{
-						Name: "ValidationError",
-						Data: validationErrors,
-					}
+			}
+		} else if constructor := constructors.Get(value.Class()); constructor != nil {
+			return constructor.handler(value)
+		} else if properties := value.Class().Descriptors().Properties; properties != nil {
+			castedMapValue := NewMapValue()
+			for key, property := range properties {
+				propertyValue, err := property.Getter(value)
+				if err != nil {
+					return nil, err
 				}
-				return constructor.handler(constructedMapValue)
+				castedMapValue.Set(key, propertyValue)
 			}
+			return Construct(target, castedMapValue)
 		}
-	}
-	if constructor := target.Descriptors().Constructors.Get(value.Class()); constructor != nil {
-		return constructor.handler(value)
-	}
-	if properties := value.Class().Descriptors().Properties; properties != nil {
-		castedMapValue := NewMapValue()
-		for key, property := range properties {
-			propertyValue, err := property.Getter(value)
-			if err != nil {
-				return nil, err
-			}
-			castedMapValue.Set(key, propertyValue)
-		}
-		return Construct(target, castedMapValue)
 	}
 	return nil, StandardError(CannotConstruct, "cannot construct %s from %s", target.Descriptors().Name, value.Class().Descriptors().Name)
 }
@@ -394,10 +419,10 @@ func makeClassOperatorFn(operandClass Class, callback interface{}) (classOperato
 		args:    []reflect.Type{emptyValueObjectType, emptyValueObjectType},
 		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a, b ValueObject) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
 		returnValues := cb.Call(args)
@@ -410,7 +435,7 @@ func makeClassOperatorFn(operandClass Class, callback interface{}) (classOperato
 func ShouldOperate(token tokens.Token, target, value Class) error {
 	targetDescriptors := target.Descriptors()
 	if !token.IsOperator() {
-		return StandardError(InvalidOperator, "invalid binary opreator %s", token)
+		return StandardError(InvalidOperator, "invalid binary operator %s", token)
 	}
 	if targetDescriptors.Operators != nil {
 		if operator := targetDescriptors.Operators.Get(value, token); operator != nil {
@@ -422,7 +447,7 @@ func ShouldOperate(token tokens.Token, target, value Class) error {
 func Operate(token tokens.Token, target, value ValueObject) (ValueObject, error) {
 	targetDescriptors := target.Class().Descriptors()
 	if !token.IsOperator() {
-		return nil, StandardError(InvalidOperator, "invalid binary opreator %s", token)
+		return nil, StandardError(InvalidOperator, "invalid binary operator %s", token)
 	}
 	if targetDescriptors.Operators != nil {
 		if operator := targetDescriptors.Operators.Get(value.Class(), token); operator != nil {
@@ -476,10 +501,10 @@ func makeClassComparatorFn(operandClass Class, callback interface{}) (classCompa
 		args:    []reflect.Type{emptyValueObjectType, emptyValueObjectType},
 		returns: []reflect.Type{emptyBoolType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a, b ValueObject) (bool, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
 		returnValues := cb.Call(args)
@@ -557,10 +582,10 @@ func makeClassGetterMethod(propertyClass Class, callback interface{}) (ClassGett
 		args:    []reflect.Type{emptyValueObjectType},
 		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a)}
 		returnValues := cb.Call(args)
@@ -574,10 +599,10 @@ func makeClassSetterMethod(propertyClass Class, callback interface{}) (ClassSett
 		args:    []reflect.Type{emptyValueObjectType, emptyValueObjectType},
 		returns: []reflect.Type{emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a, b ValueObject) error {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
 		returnValues := cb.Call(args)
@@ -655,10 +680,10 @@ func makeEnumerableGetLengthMethod(callback interface{}) (EnumerableGetLengthMet
 		args:    []reflect.Type{emptyValueObjectType},
 		returns: []reflect.Type{emptyIntType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject) (int, error) {
 		args := []reflect.Value{reflect.ValueOf(a)}
 		returnValues := cb.Call(args)
@@ -672,10 +697,10 @@ func makeEnumerableGetIndexMethod(callback interface{}) (EnumerableGetIndexMetho
 		args:    []reflect.Type{emptyValueObjectType, emptyIntType},
 		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject, b int) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b)}
 		returnValues := cb.Call(args)
@@ -689,10 +714,10 @@ func makeEnumerableSetIndexMethod(callback interface{}) (EnumerableSetIndexMetho
 		args:    []reflect.Type{emptyValueObjectType, emptyIntType, emptyValueObjectType},
 		returns: []reflect.Type{emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject, b int, c ValueObject) error {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c)}
 		returnValues := cb.Call(args)
@@ -705,10 +730,10 @@ func makeEnumerableGetRangeMethod(callback interface{}) (EnumerableGetRangeMetho
 		args:    []reflect.Type{emptyValueObjectType, emptyIntType, emptyIntType},
 		returns: []reflect.Type{emptyValueObjectType, emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject, b int, c int) (ValueObject, error) {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c)}
 		returnValues := cb.Call(args)
@@ -722,10 +747,10 @@ func makeEnumerableSetRangeMethod(callback interface{}) (EnumerableSetRangeMetho
 		args:    []reflect.Type{emptyValueObjectType, emptyIntType, emptyIntType, emptyValueObjectType},
 		returns: []reflect.Type{emptyErrorType},
 	}
-	cb := newCallback(callback)
-	if !cb.AcceptsParameters(expectedSignature) {
-		return nil, StandardError(ExpectedCallbackSignaure, "expected signature %s, got %s", expectedSignature.String(), cb.Signature.String())
+	if err := expectedSignature.Check(callback); err != nil {
+		return nil, err
 	}
+	cb := reflect.ValueOf(callback)
 	return func(a ValueObject, b int, c int, d ValueObject) error {
 		args := []reflect.Value{reflect.ValueOf(a), reflect.ValueOf(b), reflect.ValueOf(c), reflect.ValueOf(d)}
 		returnValues := cb.Call(args)

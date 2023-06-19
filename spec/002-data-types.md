@@ -118,18 +118,22 @@ Any type that represents a numeric value are called numeric types. All numeric t
 
 A map represents a generic collection of key-value pairs that doesn't conform to a specific set of properties. Keys and values can be mutated so long as the updated value can be constructed into the previous value. Keys are unique, unordered, and indexed by a string. The number of elements is the length of the map and is never negative.
 
-#### 2.2.6 `Nilable` Object
+#### 2.2.6 `Partial` Object
+
+A partial represents a meta-value that inherits the properties of a specific type but is not a direct inheritance of that type, meaning that the parent classes' descriptors will be truncated and given a new `Properties` descriptor that conforms to the characteristics of the partial. All properties given to a partial will be cast to a nilable type. A partial is described by a class parameter that represents the class of the value that is assumed.
+
+#### 2.2.7 `Nilable` Object
 
 A nilable represents a value that can be assumed to have a nil value or a value of a specific type. The Nilable type is a generic type that takes in a class parameter that represents the class of the value that is assumed (the parent class) when the Nilable is not nil. The Nilable descriptors share the same descriptors as the class but act as a wrapper to allow for nil values to be handled.
 
-#### 2.2.7 `Array` Object
+#### 2.2.8 `Array` Object
 
 An array is a numbered sequence of elements of a single class, called the item class. The number of elements is called the length of the array and is never negative.
 
-#### 2.2.8 `Error` Object
+#### 2.2.9 `Error` Object
 
 An error represents a value that is thrown when an error occurs in the execution of a routine. An error is described by a name string, a message string, and a generic data value to annotate the specific details of the error.
 
-#### 2.2.9 `Function` Object
+#### 2.2.10 `Function` Object
 
 A function represents a sub-routine to be called through an interface so the control flow can interact with logic in the [host environment (annotation needed)]. A function implements `Callable` and is described by a list of arguments classes, and a return class.
