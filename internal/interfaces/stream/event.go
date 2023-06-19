@@ -115,30 +115,30 @@ func makeEventEmitterFunction(process *runtime.Process) symbols.Callable {
 		Arguments: []symbols.Class{
 			// FIXME: same problem as len(), but instead of indexable it should be
 			// classes.EventInstance
-			// symbols.Any{},
+			symbols.Any,
 		},
 		Returns: nil,
-		Handler: func(ev symbols.ValueObject) (symbols.ValueObject, error) {
+		Handler: func(ev symbols.ValueObject) error {
 			eventObject, ok := ev.(*EventObject)
 			if !ok {
-				return nil, fmt.Errorf("cannot emit non-event")
+				return fmt.Errorf("cannot emit non-event")
 			}
 			var conn resource.NatsConnection
 			err := process.Resource("nats", &conn)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			bytes, err := json.Marshal(eventObject.Value())
 			if err != nil {
-				return nil, err
+				return err
 			}
 			err = conn.Client.Publish(string(eventObject.parentType.Topic), bytes)
 			if err != nil {
-				return nil, err
+				return err
 			}
 			log.Printf(log.LevelINFO, log.Signal("EVENT"), "\"%s\" emitted", eventObject.parentType.Topic)
 
-			return nil, nil
+			return nil
 		},
 	})
 }

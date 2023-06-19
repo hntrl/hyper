@@ -28,6 +28,7 @@ func (QueryInterface) FromNode(ctx *domain.Context, node ast.ContextMethod) (*do
 	if node.Block.Parameters.ReturnType == nil {
 		return nil, errors.NodeError(node.Block.Parameters, 0, "query must have a return type")
 	}
+	table.Immutable["self"] = &symbols.ExpectedValueObject{Class: Message}
 	fn, err := table.ResolveFunctionBlock(node.Block)
 	if err != nil {
 		return nil, err

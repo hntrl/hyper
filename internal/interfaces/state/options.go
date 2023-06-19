@@ -10,6 +10,21 @@ var (
 	QueryOptions            = QueryOptionsClass{}
 	QueryOptionsDescriptors = &symbols.ClassDescriptors{
 		Name: "QueryOptions",
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.Map, func(val *symbols.MapValue) (*QueryOptionsValue, error) {
+				qo := &QueryOptionsValue{
+					Skip:  -1,
+					Limit: -1,
+				}
+				if skipValue := val.Get("skip"); skipValue != nil {
+					qo.Skip = int64(skipValue.(symbols.IntegerValue))
+				}
+				if limitValue := val.Get("limit"); limitValue != nil {
+					qo.Limit = int64(limitValue.(symbols.IntegerValue))
+				}
+				return qo, nil
+			}),
+		},
 		Properties: symbols.ClassPropertyMap{
 			"skip": symbols.PropertyAttributes(symbols.PropertyOptions{
 				Class: symbols.NewNilableClass(symbols.Integer),

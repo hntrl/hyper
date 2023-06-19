@@ -81,7 +81,15 @@ func (tc TypeClass) Descriptors() *symbols.ClassDescriptors {
 		})
 	}
 	return &symbols.ClassDescriptors{
-		Name:       tc.Name,
+		Name: tc.Name,
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.Map, func(val *symbols.MapValue) (*TypeValue, error) {
+				return &TypeValue{
+					class: tc,
+					data:  val.Map(),
+				}, nil
+			}),
+		},
 		Properties: propertyMap,
 	}
 }

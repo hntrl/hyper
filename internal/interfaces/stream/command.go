@@ -25,6 +25,7 @@ func (CommandInterface) FromNode(ctx *domain.Context, node ast.ContextMethod) (*
 	if len(node.Block.Parameters.Arguments.Items) > 1 {
 		return nil, errors.NodeError(node.Block.Parameters.Arguments, 0, "command must have only one argument")
 	}
+	table.Immutable["self"] = &symbols.ExpectedValueObject{Class: Message}
 	fn, err := table.ResolveFunctionBlock(node.Block)
 	if err != nil {
 		return nil, err

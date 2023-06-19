@@ -67,7 +67,7 @@ func (EntityInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*d
 			return nil, errors.NodeError(field, 0, "%T not allowed in entity", item)
 		}
 	}
-	store := EntityStore{
+	store := &EntityStore{
 		entityType: ent,
 		methods:    make(map[EffectType]symbols.Function),
 	}
@@ -100,10 +100,10 @@ func (es EntityStore) Descriptors() *symbols.ClassDescriptors {
 	descriptors.ClassProperties = symbols.ClassObjectPropertyMap{
 		"find": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				es.entityType,
+				symbols.NewPartialClass(es.entityType),
 				QueryOptions,
 			},
-			Returns: symbols.NewArrayClass(EntityInstance{entityFactory: es}),
+			Returns: symbols.NewArrayClass(EntityInstance{entityStore: es}),
 			Handler: func(filterValue *EntityValue, options QueryOptionsValue) (*symbols.ArrayValue, error) {
 				dbFindOptions := mongoOptions.Find()
 				if options.Skip != -1 {
@@ -125,7 +125,7 @@ func (es EntityStore) Descriptors() *symbols.ClassDescriptors {
 				if err = cursor.All(context.TODO(), &results); err != nil {
 					return nil, err
 				}
-				instanceType := EntityInstance{entityFactory: es}
+				instanceType := EntityInstance{entityStore: es}
 				arr := symbols.NewArray(instanceType, len(results))
 				for idx, item := range results {
 					instanceValue, err := item.EntityInstance(es)
@@ -139,10 +139,10 @@ func (es EntityStore) Descriptors() *symbols.ClassDescriptors {
 		}),
 		"findOne": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				es.entityType,
+				symbols.NewPartialClass(es.entityType),
 				QueryOptions,
 			},
-			Returns: EntityInstance{entityFactory: es},
+			Returns: EntityInstance{entityStore: es},
 			Handler: func(filterValue *EntityValue, options QueryOptionsValue) (*EntityInstanceValue, error) {
 				dbFindOptions := mongoOptions.FindOne()
 				if options.Skip != -1 {
@@ -171,7 +171,7 @@ func (es EntityStore) Descriptors() *symbols.ClassDescriptors {
 			Arguments: []symbols.Class{
 				es.entityType,
 			},
-			Returns: EntityInstance{entityFactory: es},
+			Returns: EntityInstance{entityStore: es},
 			Handler: func(stateValue *EntityValue) (*EntityInstanceValue, error) {
 				state := EntityStateEvent{
 					EntityID:  strconv.Itoa(seededRand.Int())[0:12],
@@ -276,6 +276,56 @@ func (es EntityStore) iterateChangeStream(routineCtx context.Context, stream *mo
 	}
 }
 
+func (es *EntityStore) AddMethod(ctx *domain.Context, node ast.ContextObjectMethod) error {
+	arguments := node.Block.Parameters.Arguments.Items
+	var targetEffect EffectType
+	switch node.Name {
+	case "onCreate":
+		targetEffect = EffectTypeCreate
+		if len(arguments) != 1 {
+			return errors.NodeError(node, errors.InvalidArgumentLength, "onCreate must have one argument")
+		}
+	case "onUpdate":
+		targetEffect = EffectTypeUpdate
+		if len(arguments) != 2 {
+			return errors.NodeError(node, errors.InvalidArgumentLength, "onUpdate must have two arguments")
+		}
+	case "onDelete":
+		targetEffect = EffectTypeDelete
+		if len(arguments) != 1 {
+			return errors.NodeError(node, errors.InvalidArgumentLength, "onDelete must have one argument")
+		}
+	default:
+		return errors.NodeError(node, 0, "%s not allowed on %s", node.Name, es.entityType.Name)
+	}
+	if _, ok := es.methods[targetEffect]; ok {
+		return errors.NodeError(node, 0, "%s already defined on %s", node.Name, es.entityType.Name)
+	}
+	if node.Block.Parameters.ReturnType != nil {
+		return errors.NodeError(node, 0, "%s cannot have a return type", node.Name)
+	}
+	table := ctx.Symbols()
+	for _, arg := range arguments {
+		if argExpr, ok := arg.(ast.ArgumentItem); ok {
+			class, err := table.EvaluateTypeExpression(argExpr.Init)
+			if err != nil {
+				return err
+			}
+			if !symbols.ClassEquals(class, es) {
+				return errors.NodeError(argExpr.Init, 0, "%s argument must be equal to target type", node.Name)
+			}
+		} else {
+			return errors.NodeError(argExpr.Init, 0, "%s argument must be equal to target type", node.Name)
+		}
+	}
+	fn, err := table.ResolveFunctionBlock(node.Block)
+	if err != nil {
+		return err
+	}
+	es.methods[targetEffect] = *fn
+	return nil
+}
+
 func (es *EntityStore) Attach(process *runtime.Process) error {
 	var conn resource.MongoConnection
 	err := process.Resource("mdb", &conn)
@@ -335,8 +385,24 @@ func (ent Entity) Descriptors() *symbols.ClassDescriptors {
 			},
 		})
 	}
+	entityStore := EntityStore{entityType: ent}
+	entityInstanceClass := EntityInstance{entityStore: entityStore}
 	return &symbols.ClassDescriptors{
-		Name:       ent.Name,
+		Name: ent.Name,
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.Map, func(val *symbols.MapValue) (*EntityValue, error) {
+				return &EntityValue{
+					entityType: ent,
+					data:       val.Map(),
+				}, nil
+			}),
+			symbols.Constructor(entityInstanceClass, func(val *EntityInstanceValue) (*EntityValue, error) {
+				return &EntityValue{
+					entityType: ent,
+					data:       val.data,
+				}, nil
+			}),
+		},
 		Properties: propertyMap,
 	}
 }
@@ -358,12 +424,12 @@ func (eo EntityValue) Value() interface{} {
 }
 
 type EntityInstance struct {
-	entityFactory EntityStore
+	entityStore EntityStore
 }
 
 func (ei EntityInstance) Descriptors() *symbols.ClassDescriptors {
 	propertyMap := make(symbols.ClassPropertyMap)
-	for name, class := range ei.entityFactory.entityType.Properties {
+	for name, class := range ei.entityStore.entityType.Properties {
 		propertyMap[name] = symbols.PropertyAttributes(symbols.PropertyOptions{
 			Class: class,
 			Getter: func(obj *EntityInstanceValue) (symbols.ValueObject, error) {
@@ -372,12 +438,12 @@ func (ei EntityInstance) Descriptors() *symbols.ClassDescriptors {
 		})
 	}
 	return &symbols.ClassDescriptors{
-		Name: fmt.Sprintf("[%s]", ei.entityFactory.entityType.Name),
+		Name: fmt.Sprintf("[%s]", ei.entityStore.entityType.Name),
 		Prototype: symbols.ClassPrototypeMap{
 			"update": symbols.NewClassMethod(symbols.ClassMethodOptions{
 				Class: ei,
 				Arguments: []symbols.Class{
-					ei.entityFactory.entityType,
+					ei.entityStore.entityType,
 				},
 				Returns: nil,
 				Handler: func(instanceValue *EntityInstanceValue, updatedValue EntityValue) error {
@@ -387,7 +453,7 @@ func (ei EntityInstance) Descriptors() *symbols.ClassDescriptors {
 						Effect:    EffectTypeUpdate,
 						State:     updatedValue,
 					}
-					if _, err := instanceValue.instanceType.entityFactory.eventLog.InsertOne(context.TODO(), state); err != nil {
+					if _, err := instanceValue.instanceType.entityStore.eventLog.InsertOne(context.TODO(), state); err != nil {
 						return err
 					}
 					instanceValue.data = updatedValue.data
@@ -404,7 +470,7 @@ func (ei EntityInstance) Descriptors() *symbols.ClassDescriptors {
 						Timestamp: time.Now(),
 						Effect:    EffectTypeDelete,
 					}
-					if _, err := instanceValue.instanceType.entityFactory.eventLog.InsertOne(context.TODO(), state); err != nil {
+					if _, err := instanceValue.instanceType.entityStore.eventLog.InsertOne(context.TODO(), state); err != nil {
 						return err
 					}
 					return nil
@@ -438,12 +504,12 @@ type EffectType string
 
 const (
 	EffectTypeCreate EffectType = "CREATE"
-	EffectTypeUpdate            = "UPDATE"
-	EffectTypeDelete            = "DELETE"
+	EffectTypeUpdate EffectType = "UPDATE"
+	EffectTypeDelete EffectType = "DELETE"
 )
 
-func unmarshalEntityToInstanceValue(entityFactory EntityStore, entityID string, state interface{}) (*EntityInstanceValue, error) {
-	instanceType := EntityInstance{entityFactory: entityFactory}
+func unmarshalEntityToInstanceValue(entityStore EntityStore, entityID string, state interface{}) (*EntityInstanceValue, error) {
+	instanceType := EntityInstance{entityStore: entityStore}
 	bytes, err := bson.MarshalExtJSON(state, false, true)
 	if err != nil {
 		return nil, err
@@ -472,8 +538,8 @@ type EntityStateEvent struct {
 	State     interface{}         `bson:"state,omitempty"`
 }
 
-func (es EntityStateEvent) EntityInstance(entityFactory EntityStore) (*EntityInstanceValue, error) {
-	return unmarshalEntityToInstanceValue(entityFactory, es.EntityID, es.State)
+func (es EntityStateEvent) EntityInstance(entityStore EntityStore) (*EntityInstanceValue, error) {
+	return unmarshalEntityToInstanceValue(entityStore, es.EntityID, es.State)
 }
 
 // Represents the internal model of the working record
@@ -485,8 +551,8 @@ type EntityState struct {
 	State     interface{}         `bson:"state,omitempty"`
 }
 
-func (es EntityState) EntityInstance(entityFactory EntityStore) (*EntityInstanceValue, error) {
-	return unmarshalEntityToInstanceValue(entityFactory, es.EntityID, es.State)
+func (es EntityState) EntityInstance(entityStore EntityStore) (*EntityInstanceValue, error) {
+	return unmarshalEntityToInstanceValue(entityStore, es.EntityID, es.State)
 }
 
 // Represents the event given from the database change stream when an entity state event is inserted
