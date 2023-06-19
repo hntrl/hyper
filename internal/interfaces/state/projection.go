@@ -63,7 +63,7 @@ func (ProjectionInterface) FromNode(ctx *domain.Context, node ast.ContextObject)
 			return nil, errors.NodeError(field, 0, "%T not allowed in projection", item)
 		}
 	}
-	store := ProjectionStore{
+	store := &ProjectionStore{
 		projectionType: proj,
 		events:         make(map[*stream.Event]symbols.Callable),
 	}
@@ -92,7 +92,7 @@ func (ps ProjectionStore) Descriptors() *symbols.ClassDescriptors {
 	descriptors.ClassProperties = symbols.ClassObjectPropertyMap{
 		"find": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				ps.projectionType,
+				symbols.NewPartialClass(ps.projectionType),
 				QueryOptions,
 			},
 			Returns: symbols.NewArrayClass(projectionRecordType),
@@ -148,7 +148,7 @@ func (ps ProjectionStore) Descriptors() *symbols.ClassDescriptors {
 		}),
 		"findOne": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				ps.projectionType,
+				symbols.NewPartialClass(ps.projectionType),
 				QueryOptions,
 			},
 			Returns: projectionRecordType,
@@ -191,7 +191,7 @@ func (ps ProjectionStore) Descriptors() *symbols.ClassDescriptors {
 		}),
 		"insert": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
-				ps.projectionType,
+				symbols.NewPartialClass(ps.projectionType),
 			},
 			Returns: projectionRecordType,
 			Handler: func(projectionValue *ProjectionValue) (*ProjectionRecordValue, error) {
@@ -209,6 +209,42 @@ func (ps ProjectionStore) Descriptors() *symbols.ClassDescriptors {
 		}),
 	}
 	return &descriptors
+}
+
+func (ps *ProjectionStore) AddMethod(ctx *domain.Context, node ast.ContextObjectMethod) error {
+	arguments := node.Block.Parameters.Arguments.Items
+	if node.Name != "onEvent" {
+		return errors.NodeError(node, 0, "invalid method %s on projection", node.Name)
+	}
+	if len(arguments) != 1 {
+		return errors.NodeError(node, errors.InvalidArgumentLength, "onEvent must only have one argument")
+	}
+	if node.Block.Parameters.ReturnType != nil {
+		return errors.NodeError(node, 0, "onEvent cannot have a return type")
+	}
+	table := ctx.Symbols()
+	if argExpr, ok := arguments[0].(ast.ArgumentItem); ok {
+		class, err := table.EvaluateTypeExpression(argExpr.Init)
+		if err != nil {
+			return err
+		}
+		if event, ok := class.(stream.Event); ok {
+			for registeredEvent := range ps.events {
+				if symbols.ClassEquals(event, *registeredEvent) {
+					return errors.NodeError(argExpr.Init, 0, "event %s already registered for projection", event.Topic)
+				}
+			}
+			fn, err := table.ResolveFunctionBlock(node.Block)
+			if err != nil {
+				return err
+			}
+			ps.events[&event] = fn
+			return nil
+		}
+		return errors.NodeError(argExpr.Init, 0, "argument to onEvent must be an event, got %T", class)
+	} else {
+		return errors.NodeError(argExpr.Init, 0, "argument to onEvent must be an event, got ambiguous type")
+	}
 }
 
 func (ps *ProjectionStore) Attach(process *runtime.Process) error {
@@ -275,8 +311,24 @@ func (p Projection) Descriptors() *symbols.ClassDescriptors {
 			},
 		})
 	}
+	projectionStore := ProjectionStore{projectionType: p}
+	projectionRecordClass := ProjectionRecord{projectionStore: projectionStore}
 	return &symbols.ClassDescriptors{
-		Name:       p.Name,
+		Name: p.Name,
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.Map, func(val *symbols.MapValue) (*ProjectionValue, error) {
+				return &ProjectionValue{
+					projectionType: p,
+					data:           val.Map(),
+				}, nil
+			}),
+			symbols.Constructor(projectionRecordClass, func(val *ProjectionRecordValue) (*ProjectionValue, error) {
+				return &ProjectionValue{
+					projectionType: p,
+					data:           val.data,
+				}, nil
+			}),
+		},
 		Properties: propertyMap,
 	}
 }
@@ -318,19 +370,19 @@ func (pr ProjectionRecord) Descriptors() *symbols.ClassDescriptors {
 				Class:     pr,
 				Arguments: []symbols.Class{pr.projectionStore.projectionType},
 				Returns:   nil,
-				Handler: func(projectionValue *ProjectionRecordValue, updateValue *ProjectionValue) (symbols.ValueObject, error) {
+				Handler: func(projectionValue *ProjectionRecordValue, updateValue *ProjectionValue) error {
 					_, err := pr.projectionStore.collection.UpdateOne(context.TODO(), bson.M{"_id": projectionValue.recordID}, updateValue.Value())
 					projectionValue.data = updateValue.data
-					return nil, err
+					return err
 				},
 			}),
 			"delete": symbols.NewClassMethod(symbols.ClassMethodOptions{
 				Class:     pr,
 				Arguments: []symbols.Class{},
 				Returns:   nil,
-				Handler: func(projectionValue *ProjectionRecordValue) (symbols.ValueObject, error) {
+				Handler: func(projectionValue *ProjectionRecordValue) error {
 					_, err := pr.projectionStore.collection.DeleteOne(context.TODO(), bson.M{"_id": projectionValue.recordID})
-					return nil, err
+					return err
 				},
 			}),
 		},

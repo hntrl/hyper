@@ -164,7 +164,7 @@ func (ctx *Context) addObject(node ast.ContextObject) error {
 	if err != nil {
 		return err
 	}
-	ctx.Items[node.Name] = contextItem
+	ctx.Items[node.Name] = *contextItem
 	return nil
 }
 func (ctx *Context) addMethod(node ast.ContextMethod) error {
@@ -180,7 +180,7 @@ func (ctx *Context) addMethod(node ast.ContextMethod) error {
 	if err != nil {
 		return err
 	}
-	ctx.Items[node.Name] = contextItem
+	ctx.Items[node.Name] = *contextItem
 	return nil
 }
 func (ctx *Context) addFunction(node ast.FunctionExpression) error {

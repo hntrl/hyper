@@ -17,12 +17,12 @@ func (EnumInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*dom
 		Name:    node.Name,
 		Private: node.Private,
 		Comment: node.Comment,
-		items:   make(map[string]EnumItem),
+		Items:   make(map[string]EnumItem),
 	}
 	for _, item := range node.Fields {
 		switch field := item.Init.(type) {
 		case ast.EnumExpression:
-			enum.items[field.Name] = EnumItem{
+			enum.Items[field.Name] = EnumItem{
 				parentType:  enum,
 				stringValue: string(field.Name),
 			}
@@ -47,10 +47,14 @@ type Enum struct {
 	Name    string
 	Private bool
 	Comment string
-	items   map[string]EnumItem `hash:"ignore"`
+	Items   map[string]EnumItem `hash:"ignore"`
 }
 
 func (en Enum) Descriptors() *symbols.ClassDescriptors {
+	classPropertyMap := make(symbols.ClassObjectPropertyMap)
+	for name, item := range en.Items {
+		classPropertyMap[name] = item
+	}
 	return &symbols.ClassDescriptors{
 		Name: en.Name,
 		Constructors: symbols.ClassConstructorSet{
@@ -58,7 +62,7 @@ func (en Enum) Descriptors() *symbols.ClassDescriptors {
 				return *val, nil
 			}),
 			symbols.Constructor(symbols.String, func(val symbols.StringValue) (*EnumItem, error) {
-				item, ok := en.items[string(val)]
+				item, ok := en.Items[string(val)]
 				if !ok {
 					return nil, fmt.Errorf("%s not valid for %s", val.Value(), en.Name)
 				}
@@ -73,6 +77,7 @@ func (en Enum) Descriptors() *symbols.ClassDescriptors {
 				return a.Value() != b.Value(), nil
 			}),
 		},
+		ClassProperties: classPropertyMap,
 	}
 }
 

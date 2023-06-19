@@ -6,10 +6,10 @@ import (
 )
 
 type ContextObjectInterface interface {
-	FromNode(*Context, ast.ContextObject) (ContextItem, error)
+	FromNode(*Context, ast.ContextObject) (*ContextItem, error)
 }
 type ContextMethodInterface interface {
-	FromNode(*Context, ast.ContextMethod) (ContextItem, error)
+	FromNode(*Context, ast.ContextMethod) (*ContextItem, error)
 }
 
 type ObjectMethodReceiver interface {
