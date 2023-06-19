@@ -29,7 +29,7 @@ ContextItemSet :: ContextItem*
 ContextItem :: (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
   * Init: (ContextObject | ContextObjectMethod | ContextMethod | FunctionExpression)
 
-UseStatement :: USE IDENT
+UseStatement :: USE STRING
   * Source: string
 
 ContextObject :: COMMENT? PRIVATE? IDENT IDENT (EXTENDS Selector)? LCURLY FieldStatement* RCURLY

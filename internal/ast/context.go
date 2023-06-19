@@ -198,6 +198,7 @@ func ParseContextItem(p *parser.Parser) (*ContextItem, error) {
 		if tok == tokens.PRIVATE {
 			p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 		}
+		p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 		_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 		p.Rollback(startIndex - 1)
 		if tok == tokens.LPAREN {
@@ -216,7 +217,7 @@ func ParseContextItem(p *parser.Parser) (*ContextItem, error) {
 	}
 }
 
-// UseStatement :: USE IDENT
+// UseStatement :: USE STRING
 type UseStatement struct {
 	pos    tokens.Position
 	Source string
@@ -238,7 +239,7 @@ func ParseUseStatement(p *parser.Parser) (*UseStatement, error) {
 	statement.pos = pos
 	_, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
 	if tok != tokens.STRING {
-		return nil, ExpectedError(pos, tokens.IDENT, lit)
+		return nil, ExpectedError(pos, tokens.STRING, lit)
 	}
 	statement.Source = lit
 	return statement, nil
