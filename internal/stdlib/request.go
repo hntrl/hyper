@@ -125,7 +125,7 @@ func (rp RequestPackage) Get(key string) (symbols.ScopeValue, error) {
 		"post": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
 				symbols.String,
-				nil,
+				symbols.Any,
 				symbols.NewNilableClass(HTTPRequestConfig),
 			},
 			Returns: HTTPResponse,
@@ -136,7 +136,7 @@ func (rp RequestPackage) Get(key string) (symbols.ScopeValue, error) {
 		"put": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
 				symbols.String,
-				nil,
+				symbols.Any,
 				symbols.NewNilableClass(HTTPRequestConfig),
 			},
 			Returns: HTTPResponse,
@@ -177,7 +177,7 @@ func (rp RequestPackage) Get(key string) (symbols.ScopeValue, error) {
 		"patch": symbols.NewFunction(symbols.FunctionOptions{
 			Arguments: []symbols.Class{
 				symbols.String,
-				nil,
+				symbols.Any,
 				symbols.NewNilableClass(HTTPRequestConfig),
 			},
 			Returns: HTTPResponse,
@@ -196,9 +196,159 @@ func (rp RequestPackage) Get(key string) (symbols.ScopeValue, error) {
 }
 
 var (
+	HTTPAuthConfig            = HTTPAuthConfigClass{}
+	HTTPAuthConfigDescriptors = &symbols.ClassDescriptors{
+		Name: "HTTPAuthConfig",
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.Map, func(val *symbols.MapValue) (*HTTPAuthConfigValue, error) {
+				out := &HTTPAuthConfigValue{}
+				if usernameValue, ok := val.Get("username").(*symbols.NilableValue); ok {
+					if username, ok := usernameValue.Value().(symbols.StringValue); ok {
+						*out.Username = string(username)
+					}
+				}
+				if passwordValue, ok := val.Get("password").(*symbols.NilableValue); ok {
+					if password, ok := passwordValue.Value().(symbols.StringValue); ok {
+						*out.Password = string(password)
+					}
+				}
+				return out, nil
+			}),
+		},
+		Properties: symbols.ClassPropertyMap{
+			"username": symbols.PropertyAttributes(symbols.PropertyOptions{
+				Class: symbols.NewNilableClass(symbols.String),
+				Getter: func(cfg *HTTPAuthConfigValue) (*symbols.NilableValue, error) {
+					if cfg.Username != nil {
+						return symbols.NewNilableValue(symbols.String, symbols.StringValue(*cfg.Username)), nil
+					}
+					return symbols.NewNilableValue(symbols.String, nil), nil
+				},
+			}),
+			"password": symbols.PropertyAttributes(symbols.PropertyOptions{
+				Class: symbols.NewNilableClass(symbols.String),
+				Getter: func(cfg *HTTPAuthConfigValue) (*symbols.NilableValue, error) {
+					if cfg.Password != nil {
+						return symbols.NewNilableValue(symbols.String, symbols.StringValue(*cfg.Password)), nil
+					}
+					return symbols.NewNilableValue(symbols.String, nil), nil
+				},
+			}),
+		},
+	}
+)
+
+type HTTPAuthConfigClass struct{}
+
+func (HTTPAuthConfigClass) Descriptors() *symbols.ClassDescriptors {
+	return HTTPAuthConfigDescriptors
+}
+
+type HTTPAuthConfigValue struct {
+	Username *string
+	Password *string
+}
+
+func (HTTPAuthConfigValue) Class() symbols.Class {
+	return HTTPAuthConfig
+}
+func (HTTPAuthConfigValue) Value() interface{} {
+	return nil
+}
+
+var (
+	HTTPResponse            = HTTPResponseClass{}
+	HTTPResponseDescriptors = &symbols.ClassDescriptors{
+		Name: "HTTPResponse",
+		Properties: symbols.ClassPropertyMap{
+			"status": symbols.PropertyAttributes(symbols.PropertyOptions{
+				Class: symbols.Integer,
+				Getter: func(res *HTTPResponseValue) (symbols.IntegerValue, error) {
+					return symbols.IntegerValue(res.Status), nil
+				},
+			}),
+			"headers": symbols.PropertyAttributes(symbols.PropertyOptions{
+				Class: symbols.Map,
+				Getter: func(res *HTTPResponseValue) (*symbols.MapValue, error) {
+					headerMapValue := symbols.NewMapValue()
+					for k, v := range res.Headers {
+						headerMapValue.Set(k, symbols.StringValue(v))
+					}
+					return headerMapValue, nil
+				},
+			}),
+		},
+		Prototype: symbols.ClassPrototypeMap{
+			"object": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     HTTPResponse,
+				Arguments: []symbols.Class{},
+				Returns:   symbols.Map,
+				Handler: func(res *HTTPResponseValue) (symbols.ValueObject, error) {
+					resBody, err := io.ReadAll(res.body)
+					if err != nil {
+						return nil, err
+					}
+					value, err := symbols.ValueFromBytes(resBody)
+					if err != nil {
+						return nil, err
+					}
+					return value, nil
+				},
+			}),
+		},
+	}
+)
+
+var (
 	HTTPRequestConfig            = HTTPRequestConfigClass{}
 	HTTPRequestConfigDescriptors = &symbols.ClassDescriptors{
 		Name: "HTTPRequestConfig",
+		Constructors: symbols.ClassConstructorSet{
+			symbols.Constructor(symbols.Map, func(val *symbols.MapValue) (*HTTPRequestConfigValue, error) {
+				out := &HTTPRequestConfigValue{}
+				if headersValue, ok := val.Get("headers").(*symbols.NilableValue); ok {
+					if headers, ok := headersValue.Value().(*symbols.MapValue); ok {
+						out.Headers = make(map[string]string)
+						for k, v := range headers.Map() {
+							if strValue, ok := v.(symbols.StringValue); ok {
+								out.Headers[k] = string(strValue)
+							}
+						}
+					}
+				}
+				if paramsValue, ok := val.Get("params").(*symbols.NilableValue); ok {
+					if params, ok := paramsValue.Value().(*symbols.MapValue); ok {
+						out.Params = make(map[string]string)
+						for k, v := range params.Map() {
+							if strValue, ok := v.(symbols.StringValue); ok {
+								out.Params[k] = string(strValue)
+							}
+						}
+					}
+				}
+				if authValue, ok := val.Get("auth").(*symbols.NilableValue); ok {
+					if auth, ok := authValue.Value().(*HTTPAuthConfigValue); ok {
+						out.Auth = auth
+					}
+				}
+				if contentTypeValue, ok := val.Get("contentType").(*symbols.NilableValue); ok {
+					if contentType, ok := contentTypeValue.Value().(symbols.StringValue); ok {
+						*out.ContentType = string(contentType)
+					}
+				}
+				if timeoutValue, ok := val.Get("timeout").(*symbols.NilableValue); ok {
+					if timeout, ok := timeoutValue.Value().(symbols.IntegerValue); ok {
+						*out.Timeout = int(timeout)
+					}
+				}
+				if baseURLValue, ok := val.Get("baseURL").(*symbols.NilableValue); ok {
+					if baseURL, ok := baseURLValue.Value().(symbols.StringValue); ok {
+						*out.BaseURL = string(baseURL)
+					}
+				}
+				return out, nil
+			}),
+		},
 		Properties: symbols.ClassPropertyMap{
 			"headers": symbols.PropertyAttributes(symbols.PropertyOptions{
 				Class: symbols.NewNilableClass(symbols.Map),
@@ -287,94 +437,6 @@ func (*HTTPRequestConfigValue) Class() symbols.Class {
 func (*HTTPRequestConfigValue) Value() interface{} {
 	return nil
 }
-
-var (
-	HTTPAuthConfig            = HTTPAuthConfigClass{}
-	HTTPAuthConfigDescriptors = &symbols.ClassDescriptors{
-		Name: "HTTPAuthConfig",
-		Properties: symbols.ClassPropertyMap{
-			"username": symbols.PropertyAttributes(symbols.PropertyOptions{
-				Class: symbols.NewNilableClass(symbols.String),
-				Getter: func(cfg *HTTPAuthConfigValue) (*symbols.NilableValue, error) {
-					if cfg.Username != nil {
-						return symbols.NewNilableValue(symbols.String, symbols.StringValue(*cfg.Username)), nil
-					}
-					return symbols.NewNilableValue(symbols.String, nil), nil
-				},
-			}),
-			"password": symbols.PropertyAttributes(symbols.PropertyOptions{
-				Class: symbols.NewNilableClass(symbols.String),
-				Getter: func(cfg *HTTPAuthConfigValue) (*symbols.NilableValue, error) {
-					if cfg.Password != nil {
-						return symbols.NewNilableValue(symbols.String, symbols.StringValue(*cfg.Password)), nil
-					}
-					return symbols.NewNilableValue(symbols.String, nil), nil
-				},
-			}),
-		},
-	}
-)
-
-type HTTPAuthConfigClass struct{}
-
-func (HTTPAuthConfigClass) Descriptors() *symbols.ClassDescriptors {
-	return HTTPAuthConfigDescriptors
-}
-
-type HTTPAuthConfigValue struct {
-	Username *string
-	Password *string
-}
-
-func (HTTPAuthConfigValue) Class() symbols.Class {
-	return HTTPAuthConfig
-}
-func (HTTPAuthConfigValue) Value() interface{} {
-	return nil
-}
-
-var (
-	HTTPResponse            = HTTPResponseClass{}
-	HTTPResponseDescriptors = &symbols.ClassDescriptors{
-		Name: "HTTPResponse",
-		Properties: symbols.ClassPropertyMap{
-			"status": symbols.PropertyAttributes(symbols.PropertyOptions{
-				Class: symbols.Integer,
-				Getter: func(res *HTTPResponseValue) (symbols.IntegerValue, error) {
-					return symbols.IntegerValue(res.Status), nil
-				},
-			}),
-			"headers": symbols.PropertyAttributes(symbols.PropertyOptions{
-				Class: symbols.Map,
-				Getter: func(res *HTTPResponseValue) (*symbols.MapValue, error) {
-					headerMapValue := symbols.NewMapValue()
-					for k, v := range res.Headers {
-						headerMapValue.Set(k, symbols.StringValue(v))
-					}
-					return headerMapValue, nil
-				},
-			}),
-		},
-		Prototype: symbols.ClassPrototypeMap{
-			"object": symbols.NewClassMethod(symbols.ClassMethodOptions{
-				Class:     HTTPResponse,
-				Arguments: []symbols.Class{},
-				Returns:   symbols.Map,
-				Handler: func(res *HTTPResponseValue) (symbols.ValueObject, error) {
-					resBody, err := io.ReadAll(res.body)
-					if err != nil {
-						return nil, err
-					}
-					value, err := symbols.ValueFromBytes(resBody)
-					if err != nil {
-						return nil, err
-					}
-					return value, nil
-				},
-			}),
-		},
-	}
-)
 
 type HTTPResponseClass struct{}
 
