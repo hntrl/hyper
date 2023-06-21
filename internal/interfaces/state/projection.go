@@ -385,6 +385,17 @@ func (pr ProjectionRecord) Descriptors() *symbols.ClassDescriptors {
 					return err
 				},
 			}),
+			"mutable": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     pr,
+				Arguments: []symbols.Class{},
+				Returns:   pr.projectionStore.projectionType,
+				Handler: func(projectionValue *ProjectionRecordValue) (*ProjectionValue, error) {
+					return &ProjectionValue{
+						projectionType: pr.projectionStore.projectionType,
+						data:           projectionValue.data,
+					}, nil
+				},
+			}),
 		},
 		Properties: propertyMap,
 	}

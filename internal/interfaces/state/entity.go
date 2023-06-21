@@ -476,6 +476,17 @@ func (ei EntityInstance) Descriptors() *symbols.ClassDescriptors {
 					return nil
 				},
 			}),
+			"mutable": symbols.NewClassMethod(symbols.ClassMethodOptions{
+				Class:     ei,
+				Arguments: []symbols.Class{},
+				Returns:   ei.entityStore.entityType,
+				Handler: func(entityInstance *EntityInstanceValue) (*EntityValue, error) {
+					return &EntityValue{
+						entityType: ei.entityStore.entityType,
+						data:       entityInstance.data,
+					}, nil
+				},
+			}),
 		},
 		Properties: propertyMap,
 	}
