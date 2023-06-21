@@ -231,7 +231,7 @@ func (st *SymbolTable) ResolveAssignmentStatement(node ast.AssignmentStatement) 
 	if len(node.Target.Members) > 1 {
 		effectOperator := tokens.GetEffectOperator(node.Operator)
 		operandPredicate := func(currentValue ValueObject) (ValueObject, error) {
-			if effectOperator == tokens.ASSIGN {
+			if node.Operator == tokens.ASSIGN {
 				return Construct(currentValue.Class(), operand)
 			} else {
 				return Operate(effectOperator, currentValue, operand)
@@ -273,7 +273,7 @@ func (st *SymbolTable) EvaluateAssignmentStatement(node ast.AssignmentStatement)
 	if len(node.Target.Members) > 1 {
 		effectOperator := tokens.GetEffectOperator(node.Operator)
 		operandValidator := func(currentClass Class) error {
-			if effectOperator == tokens.ASSIGN {
+			if node.Operator == tokens.ASSIGN {
 				return ShouldConstruct(currentClass, operand.Class)
 			} else {
 				return ShouldOperate(effectOperator, currentClass, operand.Class)
@@ -715,6 +715,9 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 		if shouldReturn != nil {
 			err := ShouldConstruct(shouldReturn, returned.Class)
 			if err != nil {
+				if returned.Class == nil {
+					return false, NodeError(node, InvalidReturnType, "should return %s, got <nil>", shouldReturn.Descriptors().Name)
+				}
 				return false, NodeError(node, InvalidReturnType, "should return %s, got %s", shouldReturn.Descriptors().Name, returned.Class.Descriptors().Name)
 			}
 		}

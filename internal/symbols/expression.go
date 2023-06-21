@@ -186,7 +186,7 @@ func (st *SymbolTable) ResolveUnaryExpression(node ast.UnaryExpression) (ValueOb
 		}
 		return BooleanValue(!boolValue), nil
 	default:
-		return nil, NodeError(node, BadUnaryOperator, "unknown unary property %s", node.Operator)
+		return nil, NodeError(node, BadUnaryOperator, "unknown unary operator %s", node.Operator)
 	}
 }
 func (st *SymbolTable) EvaluateUnaryExpression(node ast.UnaryExpression) (*ExpectedValueObject, error) {
