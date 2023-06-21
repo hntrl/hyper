@@ -74,9 +74,11 @@ func (ParameterInterface) FromNode(ctx *domain.Context, node ast.ContextObject) 
 		return nil, errors.NodeError(node, 0, "missing type in parameter")
 	}
 	if param.defaultValue != nil {
-		if param.defaultValue.Class() != param.parentType {
-			return nil, errors.NodeError(node, 0, "default value must be of type %s, got %s", param.parentType.Descriptors().Name, param.defaultValue.Class().Descriptors().Name)
+		obj, err := symbols.Construct(param.parentType, param.defaultValue)
+		if err != nil {
+			return nil, errors.NodeError(node, 0, "default value cannot be constructed: %s", err.Error())
 		}
+		param.defaultValue = obj
 	}
 	return &domain.ContextItem{
 		HostItem:   param,
@@ -93,8 +95,11 @@ type Parameter struct {
 	defaultValue symbols.ValueObject
 }
 
-func (pm Parameter) Descriptors() *symbols.ClassDescriptors {
-	return pm.parentType.Descriptors()
+func (pm Parameter) Class() symbols.Class {
+	return pm.parentType
+}
+func (pm Parameter) Value() interface{} {
+	return nil
 }
 
 func (pm Parameter) Attach(process *runtime.Process) error {

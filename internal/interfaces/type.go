@@ -15,7 +15,7 @@ func (TypeInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*dom
 		Name:       node.Name,
 		Private:    node.Private,
 		Comment:    node.Comment,
-		properties: make(map[string]symbols.Class),
+		Properties: make(map[string]symbols.Class),
 	}
 	if node.Extends != nil {
 		extendedType, err := table.ResolveSelector(*node.Extends)
@@ -31,7 +31,7 @@ func (TypeInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*dom
 			return nil, errors.NodeError(node.Extends, 0, "cannot extend %s", extendedTypeClass.Descriptors().Name)
 		}
 		for k, v := range properties {
-			t.properties[k] = v.PropertyClass
+			t.Properties[k] = v.PropertyClass
 		}
 	}
 	for _, item := range node.Fields {
@@ -41,7 +41,7 @@ func (TypeInterface) FromNode(ctx *domain.Context, node ast.ContextObject) (*dom
 			if err != nil {
 				return nil, err
 			}
-			t.properties[field.Name] = class
+			t.Properties[field.Name] = class
 		default:
 			return nil, errors.NodeError(field, 0, "%T not allowed in type", item)
 		}
@@ -63,12 +63,12 @@ type TypeClass struct {
 	Name       string
 	Private    bool
 	Comment    string
-	properties map[string]symbols.Class
+	Properties map[string]symbols.Class
 }
 
 func (tc TypeClass) Descriptors() *symbols.ClassDescriptors {
 	propertyMap := make(symbols.ClassPropertyMap)
-	for name, class := range tc.properties {
+	for name, class := range tc.Properties {
 		propertyMap[name] = symbols.PropertyAttributes(symbols.PropertyOptions{
 			Class: class,
 			Getter: func(val *TypeValue) (symbols.ValueObject, error) {
