@@ -74,7 +74,6 @@ func (bd *ContextBuilder) addContext(node ast.Manifest, path string) error {
 	for k, v := range bd.selectorOverrides {
 		ctx.Selectors[k] = v
 	}
-	bd.Contexts[ctx.Path] = ctx
 	for _, contextItem := range node.Context.Items {
 		switch node := contextItem.Init.(type) {
 		case ast.ContextObject:
@@ -85,6 +84,7 @@ func (bd *ContextBuilder) addContext(node ast.Manifest, path string) error {
 			ctx.unresolvedItems[node.Name] = node
 		}
 	}
+	bd.Contexts[ctx.Path] = ctx
 	for _, importStatement := range node.Imports {
 		err := ctx.ImportPackage(importStatement.Source)
 		if err != nil {
@@ -148,7 +148,12 @@ func (ctx *Context) ImportPackage(source string) error {
 		return fmt.Errorf("cannot import %s: context with identifier %s is already imported", source, manifest.Context.Name)
 	}
 	ctx.ImportedContexts = append(ctx.ImportedContexts, ContextPath(absPath))
-	return ctx.builder.addContext(*manifest, absPath)
+	err = ctx.builder.addContext(*manifest, absPath)
+	if err != nil {
+		return err
+	}
+	addContextToSelectors(ctx, ctx.builder.GetContextByPath(absPath))
+	return nil
 }
 
 func (ctx *Context) addObject(node ast.ContextObject) error {
@@ -258,7 +263,7 @@ type RemoteContext struct {
 	inner *Context
 }
 
-func (rc RemoteContext) Get(key string) (symbols.ScopeValue, error) {
+func (rc *RemoteContext) Get(key string) (symbols.ScopeValue, error) {
 	obj, err := rc.inner.Get(key)
 	if err != nil {
 		return nil, fmt.Errorf("cannot import %s: %s", rc.inner.Identifier, err.Error())
@@ -266,7 +271,7 @@ func (rc RemoteContext) Get(key string) (symbols.ScopeValue, error) {
 	if contextItem, ok := obj.(ContextItem); ok {
 		return contextItem.RemoteItem, nil
 	}
-	return nil, nil
+	return obj, nil
 }
 
 // Domain is the ambiguous object that is used to separate contexts by their
@@ -290,7 +295,7 @@ func (d Domain) Get(key string) (symbols.ScopeValue, error) {
 func (d Domain) AddContextBySelector(selector string, ctx *Context) error {
 	selectorParts := strings.Split(selector, ".")
 	if len(selectorParts) == 1 {
-		d[selector] = RemoteContext{inner: ctx}
+		d[selector] = &RemoteContext{inner: ctx}
 		return nil
 	}
 	existingItem := d[selectorParts[0]]
@@ -312,5 +317,7 @@ func (d Domain) AddContextBySelector(selector string, ctx *Context) error {
 func addContextToSelectors(ctx *Context, importedCtx *Context) {
 	domain := NewDomainFromSelectors(ctx.Selectors)
 	domain.AddContextBySelector(importedCtx.Identifier, importedCtx)
-	ctx.Selectors = domain
+	for k, v := range domain {
+		ctx.Selectors[k] = v
+	}
 }

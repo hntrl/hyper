@@ -3,6 +3,8 @@ package symbols
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 
 	. "github.com/hntrl/hyper/internal/symbols/errors"
 	"github.com/hntrl/hyper/internal/tokens"
@@ -83,24 +85,54 @@ var (
 		Name: "String",
 		Constructors: ClassConstructorSet{
 			Constructor(Number, func(val NumberValue) (StringValue, error) {
-				return "", nil
+				return StringValue(strconv.FormatFloat(float64(val), 'E', -1, 64)), nil
 			}),
 			Constructor(Double, func(val DoubleValue) (StringValue, error) {
-				return "", nil
+				return StringValue(strconv.FormatFloat(float64(val), 'E', -1, 64)), nil
 			}),
 			Constructor(Float, func(val FloatValue) (StringValue, error) {
-				return "", nil
+				return StringValue(strconv.FormatFloat(float64(val), 'E', -1, 64)), nil
 			}),
 			Constructor(Integer, func(val IntegerValue) (StringValue, error) {
-				return "", nil
+				return StringValue(strconv.Itoa(int(val))), nil
 			}),
 			Constructor(Boolean, func(val BooleanValue) (StringValue, error) {
-				return "", nil
+				if val {
+					return "true", nil
+				} else {
+					return "false", nil
+				}
 			}),
 		},
-		Operators:   ClassOperatorSet{},
-		Comparators: ClassComparatorSet{},
-		Prototype:   ClassPrototypeMap{},
+		Operators: ClassOperatorSet{
+			Operator(String, tokens.ADD, func(a, b StringValue) (StringValue, error) {
+				return StringValue(string(a) + string(b)), nil
+			}),
+		},
+		Comparators: ClassComparatorSet{
+			Comparator(String, tokens.EQUALS, func(a, b StringValue) (bool, error) {
+				return string(a) == string(b), nil
+			}),
+			Comparator(String, tokens.NOT_EQUALS, func(a, b StringValue) (bool, error) {
+				return string(a) != string(b), nil
+			}),
+		},
+		Prototype: ClassPrototypeMap{
+			"lower": NewClassMethod(ClassMethodOptions{
+				Class:   String,
+				Returns: String,
+				Handler: func(a StringValue) (StringValue, error) {
+					return StringValue(strings.ToLower(string(a))), nil
+				},
+			}),
+			"upper": NewClassMethod(ClassMethodOptions{
+				Class:   String,
+				Returns: String,
+				Handler: func(a StringValue) (StringValue, error) {
+					return StringValue(strings.ToUpper(string(a))), nil
+				},
+			}),
+		},
 	}
 )
 
@@ -535,38 +567,64 @@ func NewNilableClass(parentClass Class) NilableClass {
 		}
 	}
 	if parentDescriptors.Operators != nil {
-		parentDescriptors.Operators = ClassOperatorSet{}
+		nilableClass.descriptors.Operators = ClassOperatorSet{}
 		for _, operator := range parentDescriptors.Operators {
-			nilableClass.descriptors.Operators = append(nilableClass.descriptors.Operators, &ClassOperator{
-				operandClass: operator.operandClass,
-				token:        operator.token,
-				handler: func(a ValueObject, b ValueObject) (ValueObject, error) {
-					nilable := a.(*NilableValue)
-					if nilable.setValue == nil {
+			nilableClass.descriptors.Operators = append(nilableClass.descriptors.Operators, ClassOperatorSet{
+				Operator(nilableClass, operator.token, func(a, b *NilableValue) (*NilableValue, error) {
+					if a.setValue == nil {
 						return nil, StandardError(CannotOperateNilValue, "cannot operate on nil value")
 					}
-					computedVal, err := operator.handler(nilable.setValue, b)
+					if b.setValue == nil {
+						return nil, StandardError(CannotOperateNilValue, "cannot operate on nil value")
+					}
+					computedVal, err := operator.handler(a.setValue, b.setValue)
 					if err != nil {
 						return nil, err
 					}
 					return &NilableValue{nilableClass, computedVal}, nil
+				}),
+				&ClassOperator{
+					operandClass: operator.operandClass,
+					token:        operator.token,
+					handler: func(a ValueObject, b ValueObject) (ValueObject, error) {
+						nilable := a.(*NilableValue)
+						if nilable.setValue == nil {
+							return nil, StandardError(CannotOperateNilValue, "cannot operate on nil value")
+						}
+						computedVal, err := operator.handler(nilable.setValue, b)
+						if err != nil {
+							return nil, err
+						}
+						return &NilableValue{nilableClass, computedVal}, nil
+					},
 				},
-			})
+			}...)
 		}
 	}
 	if parentDescriptors.Comparators != nil {
 		for _, comparator := range parentDescriptors.Comparators {
-			nilableClass.descriptors.Comparators = append(nilableClass.descriptors.Comparators, &ClassComparator{
-				operandClass: comparator.operandClass,
-				token:        comparator.token,
-				handler: func(a ValueObject, b ValueObject) (bool, error) {
-					nilable := a.(*NilableValue)
-					if nilable.setValue == nil {
+			nilableClass.descriptors.Comparators = append(nilableClass.descriptors.Comparators, ClassComparatorSet{
+				Comparator(nilableClass, comparator.token, func(a, b *NilableValue) (bool, error) {
+					if a.setValue == nil {
 						return false, StandardError(CannotOperateNilValue, "cannot operate on nil value")
 					}
-					return comparator.handler(nilable.setValue, b)
+					if b.setValue == nil {
+						return false, StandardError(CannotOperateNilValue, "cannot operate on nil value")
+					}
+					return comparator.handler(a.setValue, b.setValue)
+				}),
+				&ClassComparator{
+					operandClass: comparator.operandClass,
+					token:        comparator.token,
+					handler: func(a ValueObject, b ValueObject) (bool, error) {
+						nilable := a.(*NilableValue)
+						if nilable.setValue == nil {
+							return false, StandardError(CannotOperateNilValue, "cannot operate on nil value")
+						}
+						return comparator.handler(nilable.setValue, b)
+					},
 				},
-			})
+			}...)
 		}
 	}
 	if parentDescriptors.Enumerable != nil {

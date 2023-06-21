@@ -50,7 +50,10 @@ func (st *SymbolTable) Get(key string) (ScopeValue, error) {
 	if obj := st.Local[key]; obj != nil {
 		return obj, nil
 	}
-	return st.Root.Get(key)
+	if st.Root != nil {
+		return st.Root.Get(key)
+	}
+	return nil, nil
 }
 func (st *SymbolTable) Clone() SymbolTable {
 	immutable := make(map[string]ScopeValue)
@@ -87,28 +90,33 @@ func (st *SymbolTable) ResolveSelector(selector ast.Selector) (ScopeValue, error
 		return nil, NodeError(selector, UnknownSelector, "unknown selector %s", resolveChainString)
 	}
 	if len(selector.Members) > 1 {
-		currentObject, ok := current.(Object)
-		if !ok {
-			return nil, NodeError(selector, CannotAccessProperty, "cannot access property %s on %T", selector.Members[1], current)
-		}
-		for idx, member := range selector.Members[1 : len(selector.Members)-1] {
-			nextObj, err := currentObject.Get(member)
-			if err != nil {
-				return nil, err
-			}
-			if nextObj == nil {
+		for _, member := range selector.Members[1:] {
+			switch currentValue := current.(type) {
+			case Object:
+				current, err = currentValue.Get(member)
+				if err != nil {
+					return nil, err
+				}
+				if current == nil {
+					return nil, NodeError(selector, UnknownProperty, "%s has no member %s", resolveChainString, member)
+				}
+				resolveChainString += "." + member
+			case Class:
+				descriptors := currentValue.Descriptors()
+				if descriptors.ClassProperties != nil {
+					if property, ok := descriptors.ClassProperties[member]; ok {
+						current = property
+						resolveChainString += "." + member
+						continue
+					}
+				}
 				return nil, NodeError(selector, UnknownProperty, "%s has no member %s", resolveChainString, member)
+			default:
+				return nil, NodeError(selector, CannotAccessProperty, "cannot access property %s on %T", member, current)
 			}
-			currentObject, ok = nextObj.(Object)
-			if !ok {
-				return nil, NodeError(selector, CannotAccessProperty, "cannot access property %s on %T", selector.Members[idx+1], nextObj)
-			}
-			resolveChainString += "." + member
 		}
-		return currentObject.Get(selector.Members[len(selector.Members)-1])
-	} else {
-		return current, nil
 	}
+	return current, nil
 }
 
 func (st *SymbolTable) ResolveLiteral(node ast.Literal) (ValueObject, error) {
