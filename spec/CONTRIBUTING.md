@@ -10,7 +10,7 @@ We use GitHub to track public issues, whether it be bugs or other related proble
 
 ## Editorial Annotations
 
-Below are some annotation standards used to mark incompleteness for WIP changes. Any specification changes that include these annotations will not be merged into master.
+Below are some annotation standards used to mark incompleteness for WIP changes. Any specification changes that include these annotations will not be merged into main.
 
 Additional context requirements are delimited by [*subject* (annotation needed)]
 
