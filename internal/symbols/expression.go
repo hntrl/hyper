@@ -33,6 +33,8 @@ func (st *SymbolTable) ResolveExpression(node ast.Expression) (ValueObject, erro
 	switch node := node.Init.(type) {
 	case ast.Literal:
 		return st.ResolveLiteral(node)
+	case ast.TemplateLiteral:
+		return st.ResolveTemplateLiteral(node)
 	case ast.ArrayExpression:
 		return st.ResolveArrayExpression(node)
 	case ast.InstanceExpression:
@@ -59,6 +61,12 @@ func (st *SymbolTable) EvaluateExpression(node ast.Expression) (*ExpectedValueOb
 			return nil, err
 		}
 		return &ExpectedValueObject{lit.Class()}, nil
+	case ast.TemplateLiteral:
+		err := st.EvaluateTemplateLiteral(node)
+		if err != nil {
+			return nil, err
+		}
+		return &ExpectedValueObject{String}, nil
 	case ast.ArrayExpression:
 		return st.EvaluateArrayExpression(node)
 	case ast.InstanceExpression:

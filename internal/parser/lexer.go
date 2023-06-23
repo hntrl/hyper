@@ -97,6 +97,29 @@ func (l *Lexer) lexNumber() (tokens.Token, string) {
 		}
 	}
 }
+func (l *Lexer) lexEscaped() string {
+	var lit string
+	r := l.read()
+	switch r {
+	case '\\':
+		lit += "\\"
+	case 'n':
+		lit += "\n"
+	case 't':
+		lit += "\t"
+	case 'r':
+		lit += "\r"
+	case 'x':
+		lit += "\\x" + l.digits()
+	case '\'':
+		lit += "'"
+	case '"':
+		lit += "\""
+	default:
+		lit += string(r)
+	}
+	return lit
+}
 func (l *Lexer) lexString() string {
 	var lit string
 
@@ -107,31 +130,16 @@ func (l *Lexer) lexString() string {
 	}
 	for {
 		r := l.read()
-		if r == '\\' {
-			r = l.read()
-			switch r {
-			case '\\':
-				lit += "\\"
-			case 'n':
-				lit += "\n"
-			case 't':
-				lit += "\t"
-			case 'r':
-				lit += "\r"
-			case 'x':
-				lit += "\\x" + l.digits()
-			case '\'':
-				lit += "'"
-			case '"':
-				lit += "\""
-			}
-		} else if r == terminator {
-			break
-		} else {
+		switch r {
+		case '\\':
+			l.backup()
+			lit += l.lexEscaped()
+		case terminator:
+			return lit
+		default:
 			lit += string(r)
 		}
 	}
-	return lit
 }
 func (l *Lexer) lexComment() string {
 	var lit string
@@ -292,6 +300,8 @@ func (l *Lexer) Lex() (tokens.Position, tokens.Token, string) {
 				tok, lit = tokens.LPAREN, "("
 			case ')':
 				tok, lit = tokens.RPAREN, ")"
+			case '`':
+				tok, lit = tokens.BACKTICK, "`"
 			default:
 				tok, lit = tokens.ILLEGAL, string(r)
 			}

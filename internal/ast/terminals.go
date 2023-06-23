@@ -1,6 +1,7 @@
 package ast
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/hntrl/hyper/internal/parser"
@@ -80,5 +81,58 @@ func ParseLiteral(p *parser.Parser) (*Literal, error) {
 		return &Literal{pos: pos, Value: lit}, nil
 	default:
 		return nil, ExpectedError(pos, tokens.INT, lit)
+	}
+}
+
+// TemplateLiteral :: BACKTICK ((LCURLY Expression RCURLY) | any)* BACKTICK
+type TemplateLiteral struct {
+	pos   tokens.Position
+	Parts []interface{} `types:"Expression,string"`
+}
+
+func (t TemplateLiteral) Validate() error {
+	for idx, part := range t.Parts {
+		switch init := part.(type) {
+		case string:
+			// do nothing
+		case Expression:
+			if err := init.Validate(); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("parsing: %T not allowed in TemplateLiteral at index %d", part, idx)
+		}
+	}
+	return nil
+}
+
+func (t TemplateLiteral) Pos() tokens.Position {
+	return t.pos
+}
+
+func ParseTemplateLiteral(p *parser.Parser) (*TemplateLiteral, error) {
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok != tokens.BACKTICK {
+		return nil, ExpectedError(pos, tokens.BACKTICK, lit)
+	}
+	t := TemplateLiteral{pos: pos}
+	for {
+		_, lit := p.ScanUntil(rune(tokens.BACKTICK), rune(tokens.LCURLY))
+		switch tok {
+		case tokens.BACKTICK:
+			return &t, nil
+		case tokens.LCURLY:
+			expr, err := ParseExpression(p)
+			if err != nil {
+				return nil, err
+			}
+			t.Parts = append(t.Parts, expr)
+			pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+			if tok != tokens.RCURLY {
+				return nil, ExpectedError(pos, tokens.RCURLY, lit)
+			}
+		default:
+			t.Parts = append(t.Parts, lit)
+		}
 	}
 }

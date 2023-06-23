@@ -79,6 +79,7 @@ func ParseTypeExpression(p *parser.Parser) (*TypeExpression, error) {
 
 // Expression :: Literal
 //
+//	| TemplateLiteral
 //	| ArrayExpression
 //	| InstanceExpression
 //	| UnaryExpression
@@ -89,12 +90,16 @@ func ParseTypeExpression(p *parser.Parser) (*TypeExpression, error) {
 //	| LPAREN Expression RPAREN
 type Expression struct {
 	pos  tokens.Position
-	Init Node `types:"Literal,ArrayExpression,InstanceExpression,UnaryExpression,BinaryExpression,ObjectPattern,FunctionExpression,ValueExpression,Expression"`
+	Init Node `types:"Literal,TemplateLiteral,ArrayExpression,InstanceExpression,UnaryExpression,BinaryExpression,ObjectPattern,FunctionExpression,ValueExpression,Expression"`
 }
 
 func (e Expression) Validate() error {
 	if lit, ok := e.Init.(Literal); ok {
 		if err := lit.Validate(); err != nil {
+			return err
+		}
+	} else if tmpLit, ok := e.Init.(TemplateLiteral); ok {
+		if err := tmpLit.Validate(); err != nil {
 			return err
 		}
 	} else if arr, ok := e.Init.(ArrayExpression); ok {
@@ -151,6 +156,13 @@ func ParseExpression(p *parser.Parser) (*Expression, error) {
 			return nil, err
 		}
 		expr.Init = *literal
+	case tokens.BACKTICK:
+		p.Unscan()
+		tmpLiteral, err := ParseTemplateLiteral(p)
+		if err != nil {
+			return nil, err
+		}
+		expr.Init = *tmpLiteral
 	case tokens.LSQUARE:
 		p.Unscan()
 		arr, err := ParseArrayExpression(p)

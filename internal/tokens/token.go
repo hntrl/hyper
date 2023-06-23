@@ -59,6 +59,7 @@ const (
 	SEMICOLON // ;
 	COLON     // :
 	QUESTION  // ?
+	BACKTICK  // `
 
 	LCURLY  // {
 	RCURLY  // }
@@ -73,7 +74,6 @@ const (
 	CONTEXT
 	USE
 	PRIVATE
-	REMOTE
 	EXTENDS
 	FUNC
 	VAR
@@ -90,6 +90,7 @@ const (
 	GUARD
 	RETURN
 	THROW
+	TRY
 	PARTIAL
 	keyword_end
 )
@@ -141,6 +142,7 @@ var tokens = []string{
 	SEMICOLON: ";",
 	COLON:     ":",
 	QUESTION:  "?",
+	BACKTICK:  "`",
 
 	LCURLY:  "{",
 	RCURLY:  "}",
@@ -153,7 +155,6 @@ var tokens = []string{
 	CONTEXT:  "context",
 	USE:      "use",
 	PRIVATE:  "private",
-	REMOTE:   "remote",
 	EXTENDS:  "extends",
 	FUNC:     "func",
 	VAR:      "var",

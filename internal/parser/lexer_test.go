@@ -253,6 +253,7 @@ func TestLexTerminals(t *testing.T) {
 		{tokens.RSQUARE, "]"},
 		{tokens.LPAREN, "("},
 		{tokens.RPAREN, ")"},
+		{tokens.BACKTICK, "`"},
 	}
 
 	strParts := []string{}

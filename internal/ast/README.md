@@ -17,6 +17,9 @@ Literal :: STRING
          | FLOAT
   * Value: interface{}
 
+TemplateLiteral :: BACKTICK ((LCURLY Expression RCURLY) | any)* BACKTICK
+  * Parts: [](Expression | string)
+
 Context :: COMMENT? CONTEXT Selector LCURLY (UseStatement | ContextItem)* RCURLY
   * Name: string
   * Remotes: []UseStatement
@@ -82,6 +85,7 @@ TypeExpression :: (LSQUARE RSQUARE)? Selector QUESTION?
   * Members: []string
 
 Expression :: Literal
+            | TemplateLiteral
             | ArrayExpression
             | InstanceExpression
             | UnaryExpression
@@ -90,7 +94,7 @@ Expression :: Literal
             | FunctionExpression
             | ValueExpression
             | LPAREN Expression RPAREN
-  * Init: (Literal | ArrayExpression | InstanceExpression | UnaryExpression | BinaryExpression | ObjectPattern | FunctionExpression | ValueExpression | Expression)
+  * Init: (Literal | TemplateLiteral | ArrayExpression | InstanceExpression | UnaryExpression | BinaryExpression | ObjectPattern | FunctionExpression | ValueExpression | Expression)
 
 ArrayExpression :: LSQUARE RSQUARE TypeExpression LCURLY ((Expression COMMA) | Expression)* RCURLY
   * Init: TypeExpression

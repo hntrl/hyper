@@ -136,6 +136,41 @@ func (st *SymbolTable) ResolveLiteral(node ast.Literal) (ValueObject, error) {
 	}
 }
 
+func (st *SymbolTable) ResolveTemplateLiteral(node ast.TemplateLiteral) (StringValue, error) {
+	var result string
+	for _, partNode := range node.Parts {
+		switch part := partNode.(type) {
+		case string:
+			result += part
+		case ast.Expression:
+			value, err := st.ResolveExpression(part)
+			if err != nil {
+				return "", err
+			}
+			strValue, err := Construct(String, value)
+			if err != nil {
+				return "", err
+			}
+			result += string(strValue.(StringValue))
+		}
+	}
+	return StringValue(result), nil
+}
+func (st *SymbolTable) EvaluateTemplateLiteral(node ast.TemplateLiteral) error {
+	for _, partNode := range node.Parts {
+		if expr, ok := partNode.(ast.Expression); ok {
+			partValue, err := st.EvaluateExpression(expr)
+			if err != nil {
+				return err
+			}
+			if err := ShouldConstruct(String, partValue.Class); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (st *SymbolTable) ResolvePropertyList(node ast.PropertyList) (*MapValue, error) {
 	mapValue := NewMapValue()
 	for _, prop := range node {

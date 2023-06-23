@@ -130,3 +130,158 @@ func TestBooleanLiteral(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// ParseTemplateLiteral
+// CAN PARSE TEMPLATE LITERAL
+func TestTemplateLiteral(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "`foo`",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseExpression(p)
+		},
+		expects: &TemplateLiteral{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Parts: []interface{}{
+				"foo",
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE TEMPLATE LITERAL WITH EXPRESSION
+func TestTemplateLiteralWithExpression(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "`foo {bar}`",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseExpression(p)
+		},
+		expects: &Expression{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Init: TemplateLiteral{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Parts: []interface{}{
+					"foo ",
+					Expression{
+						pos: tokens.Position{Line: 1, Column: 6},
+						Init: ValueExpression{
+							pos: tokens.Position{Line: 1, Column: 6},
+							Members: []ValueExpressionMember{
+								{
+									pos:  tokens.Position{Line: 1, Column: 6},
+									Init: "bar",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE TEMPLATE LITERAL WITH ESCAPED EXPRESSION
+func TestTemplateLiteralWithEscapedExpression(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "`foo \\{bar}`",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseExpression(p)
+		},
+		expects: &Expression{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Init: TemplateLiteral{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Parts: []interface{}{
+					"foo {bar}",
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE TEMPLATE LITERAL WITH ESCAPED BACKTICK
+func TestTemplateLiteralWithEscapedBacktick(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "`foo \\`bar`",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseExpression(p)
+		},
+		expects: &Expression{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Init: TemplateLiteral{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Parts: []interface{}{
+					"foo `bar",
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE TEMPLATE LITERAL WITH MULTIPLE EXPRESSIONS
+func TestTemplateLiteralWithMultipleExpressions(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: "`foo {bar} {baz}`",
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseExpression(p)
+		},
+		expects: &Expression{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Init: TemplateLiteral{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Parts: []interface{}{
+					"foo ",
+					Expression{
+						pos: tokens.Position{Line: 1, Column: 6},
+						Init: ValueExpression{
+							pos: tokens.Position{Line: 1, Column: 6},
+							Members: []ValueExpressionMember{
+								{
+									pos:  tokens.Position{Line: 1, Column: 6},
+									Init: "bar",
+								},
+							},
+						},
+					},
+					" ",
+					Expression{
+						pos: tokens.Position{Line: 1, Column: 13},
+						Init: ValueExpression{
+							pos: tokens.Position{Line: 1, Column: 13},
+							Members: []ValueExpressionMember{
+								{
+									pos:  tokens.Position{Line: 1, Column: 13},
+									Init: "baz",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}

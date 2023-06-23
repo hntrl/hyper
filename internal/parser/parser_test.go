@@ -103,3 +103,15 @@ func TestUnscanTo(t *testing.T) {
 		t.Errorf("Expected abc, got %v", lit)
 	}
 }
+
+// CAN SCAN UNTIL A CHARACTER AND RETURN IDENT LITERAL
+func TestScanUntil(t *testing.T) {
+	// Setup
+	parser := setupParser("abc `def")
+
+	// Assert
+	_, lit := parser.ScanUntil('`')
+	if lit != "abc " {
+		t.Errorf("Expected 'abc ', got %v", lit)
+	}
+}
