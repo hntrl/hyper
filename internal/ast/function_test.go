@@ -345,8 +345,9 @@ func TestDeclarationStatement(t *testing.T) {
 			return ParseDeclarationStatement(p)
 		},
 		expects: &DeclarationStatement{
-			pos:  tokens.Position{Line: 1, Column: 1},
-			Name: "foo",
+			pos:             tokens.Position{Line: 1, Column: 1},
+			Target:          "foo",
+			SecondaryTarget: nil,
 			Init: Expression{
 				pos: tokens.Position{Line: 1, Column: 7},
 				Init: Literal{
@@ -357,6 +358,89 @@ func TestDeclarationStatement(t *testing.T) {
 		},
 		expectsError: nil,
 		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE DECLARATION STATEMENTS WITH SECONDARY TARGET
+func TestDeclarationStatementWithSecondaryTarget(t *testing.T) {
+	expectedSecondaryTarget := "bar"
+	err := evaluateTest(TestFixture{
+		lit: `foo, bar := "baz"`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseDeclarationStatement(p)
+		},
+		expects: &DeclarationStatement{
+			pos:             tokens.Position{Line: 1, Column: 1},
+			Target:          "foo",
+			SecondaryTarget: &expectedSecondaryTarget,
+			Init: Expression{
+				pos: tokens.Position{Line: 1, Column: 12},
+				Init: Literal{
+					pos:   tokens.Position{Line: 1, Column: 12},
+					Value: "baz",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE DECLARATION STATEMENTS WITH TRY STATEMENT
+func TestDeclarationStatementWithTryStatement(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: `foo := try "bar"`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseDeclarationStatement(p)
+		},
+		expects: &DeclarationStatement{
+			pos:             tokens.Position{Line: 1, Column: 1},
+			Target:          "foo",
+			SecondaryTarget: nil,
+			Init: TryStatement{
+				pos: tokens.Position{Line: 1, Column: 7},
+				Init: Expression{
+					pos: tokens.Position{Line: 1, Column: 11},
+					Init: Literal{
+						pos:   tokens.Position{Line: 1, Column: 11},
+						Value: "bar",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN PARSE DECLARATION STATEMENTS WITH TRY STATEMENT AND SECONDARY TARGET
+func TestDeclarationStatementWithTryStatementAndSecondaryTarget(t *testing.T) {
+	expectedSecondaryTarget := "baz"
+	err := evaluateTest(TestFixture{
+		lit: `foo, bar := try "baz"`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseDeclarationStatement(p)
+		},
+		expects: &DeclarationStatement{
+			pos:             tokens.Position{Line: 1, Column: 1},
+			Target:          "foo",
+			SecondaryTarget: &expectedSecondaryTarget,
+			Init: TryStatement{
+				pos: tokens.Position{Line: 1, Column: 12},
+				Init: Expression{
+					pos: tokens.Position{Line: 1, Column: 16},
+					Init: Literal{
+						pos:   tokens.Position{Line: 1, Column: 16},
+						Value: "baz",
+					},
+				},
+			},
+		},
 	})
 	if err != nil {
 		t.Error(err)
@@ -431,6 +515,173 @@ func TestAssignmentStatementIntegerOp(t *testing.T) {
 				Init: Literal{
 					pos:   tokens.Position{Line: 1, Column: 6},
 					Value: int64(1),
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE ASSIGNMENT WITH SECONDARY TARGET
+func TestAssignmentStatementWithSecondaryTarget(t *testing.T) {
+	expectedSecondaryTarget := "bar"
+	err := evaluateTest(TestFixture{
+		lit: `abc, bar = 1`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseAssignmentStatement(p)
+		},
+		expects: &AssignmentStatement{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Target: AssignmentTargetExpression{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Members: []AssignmentTargetExpressionMember{
+					{Init: "abc"},
+				},
+			},
+			SecondaryTarget: &expectedSecondaryTarget,
+			Operator:        tokens.ASSIGN,
+			Init: Expression{
+				pos: tokens.Position{Line: 1, Column: 9},
+				Init: Literal{
+					pos:   tokens.Position{Line: 1, Column: 9},
+					Value: int64(1),
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE ASSIGNMENT WITH COMPLEX TARGET AND SECONDARY TARGET
+func TestAssignmentStatementWithComplexTargetAndSecondaryTarget(t *testing.T) {
+	expectedSecondaryTarget := "bar"
+	err := evaluateTest(TestFixture{
+		lit: `abc[1].val[3:int('abc')], bar = 1`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseAssignmentStatement(p)
+		},
+		expects: &AssignmentStatement{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Target: AssignmentTargetExpression{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Members: []AssignmentTargetExpressionMember{
+					{
+						pos:  tokens.Position{Line: 1, Column: 1},
+						Init: "abc",
+					},
+					{
+						pos: tokens.Position{Line: 1, Column: 4},
+						Init: IndexExpression{
+							pos: tokens.Position{Line: 1, Column: 4},
+							Left: &Expression{
+								pos: tokens.Position{Line: 1, Column: 5},
+								Init: Literal{
+									pos:   tokens.Position{Line: 1, Column: 5},
+									Value: int64(1),
+								},
+							},
+							IsRange: false,
+							Right:   nil,
+						},
+					},
+					{
+						pos:  tokens.Position{Line: 1, Column: 7},
+						Init: "val",
+					},
+					{
+						pos: tokens.Position{Line: 1, Column: 13},
+						Init: IndexExpression{
+							pos: tokens.Position{Line: 1, Column: 13},
+							Left: &Expression{
+								pos: tokens.Position{Line: 1, Column: 14},
+								Init: Literal{
+									pos:   tokens.Position{Line: 1, Column: 14},
+									Value: int64(3),
+								},
+							},
+							IsRange: true,
+							Right: &Expression{
+								pos: tokens.Position{Line: 1, Column: 19},
+								Init: ValueExpression{
+									pos: tokens.Position{Line: 1, Column: 19},
+									Members: []ValueExpressionMember{
+										{
+											pos:  tokens.Position{Line: 1, Column: 19},
+											Init: "int",
+										},
+										{
+											pos: tokens.Position{Line: 1, Column: 22},
+											Init: CallExpression{
+												pos: tokens.Position{Line: 1, Column: 22},
+												Arguments: []Expression{
+													{
+														pos: tokens.Position{Line: 1, Column: 23},
+														Init: Literal{
+															pos:   tokens.Position{Line: 1, Column: 23},
+															Value: "abc",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			SecondaryTarget: &expectedSecondaryTarget,
+			Operator:        tokens.ASSIGN,
+			Init: Expression{
+				pos: tokens.Position{Line: 1, Column: 31},
+				Init: Literal{
+					pos:   tokens.Position{Line: 1, Column: 31},
+					Value: int64(1),
+				},
+			},
+		},
+		expectsError: nil,
+		endingToken:  tokens.EOF,
+	})
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+// CAN CREATE ASSIGNMENT WITH TRY STATEMENT
+func TestAssignmentStatementWithTryStatement(t *testing.T) {
+	err := evaluateTest(TestFixture{
+		lit: `abc := try "bar"`,
+		parseFn: func(p *parser.Parser) (Node, error) {
+			return ParseAssignmentStatement(p)
+		},
+		expects: &AssignmentStatement{
+			pos: tokens.Position{Line: 1, Column: 1},
+			Target: AssignmentTargetExpression{
+				pos: tokens.Position{Line: 1, Column: 1},
+				Members: []AssignmentTargetExpressionMember{
+					{Init: "abc"},
+				},
+			},
+			SecondaryTarget: nil,
+			Operator:        tokens.ASSIGN,
+			Init: TryStatement{
+				pos: tokens.Position{Line: 1, Column: 7},
+				Init: Expression{
+					pos: tokens.Position{Line: 1, Column: 11},
+					Init: Literal{
+						pos:   tokens.Position{Line: 1, Column: 11},
+						Value: "bar",
+					},
 				},
 			},
 		},

@@ -72,6 +72,8 @@ const (
 
 	InvalidDestructuredArgument
 
+	InvalidSecondaryTarget
+
 	CannotAccessProperty
 
 	CannotSetProperty

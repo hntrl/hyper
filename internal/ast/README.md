@@ -185,17 +185,21 @@ BlockStatement :: Expression
                 | GuardStatement
                 | ReturnStatement
                 | ThrowStatement
-  * Init: (Expression | DeclarationStatement | AssignmentStatement | IfStatement | WhileStatement | ForStatement | ContinueStatement | BreakStatement | SwitchBlock | GuardStatement | ReturnStatement | ThrowStatement)
+                | TryStatement
+  * Init: (Expression | DeclarationStatement | AssignmentStatement | IfStatement | WhileStatement | ForStatement | ContinueStatement | BreakStatement | SwitchBlock | GuardStatement | ReturnStatement | ThrowStatement | TryStatement)
 
-DeclarationStatement :: IDENT DEFINE Expression
-  * Name: string
-  * Init: Expression
+DeclarationStatement :: IDENT (COMMA IDENT)? DEFINE (Expression | TryStatement)
+  * Target: string
+  * SecondaryTarget: string?
+  * Init: (Expression | TryStatement)
 
-AssignmentStatement :: AssignmentTargetExpression token(IsAssignmentOperator) Expression
+AssignmentStatement :: AssignmentTargetExpression token(IsAssignmentOperator) (Expression | TryStatement)
+                    | AssignmentTargetExpression (COMMA IDENT)? token(IsAssignmentOperator) (Expression | TryStatement)
                     | AssignmentTargetExpression (INC | DEC)
   * Target: AssignmentTargetExpression
-  * Operator: token(IsAssignmentOperator) | (INC | DEC)
-  * Init: Expression
+  * SecondaryTarget: string?
+  * Operator: (token(IsAssignmentOperator) | INC | DEC)
+  * Init: (Expression | TryStatement)
 
 AssignmentTargetExpression :: IDENT AssignmentTargetExpressionMember*
   * Members: []AssignmentTargetExpressionMember
@@ -249,5 +253,8 @@ ReturnStatement :: RETURN Expression
   * Init: Expression
 
 ThrowStatement :: THROW Expression
+  * Init: Expression
+
+TryStatement :: TRY Expression
   * Init: Expression
 ```

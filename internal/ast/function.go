@@ -377,19 +377,20 @@ func ParseInlineBlock(p *parser.Parser) (*InlineBlock, error) {
 
 // BlockStatement :: Expression
 //
-//	| DeclarationStatement
-//	| AssignmentStatement
-//	| IfStatement
-//	| WhileStatement
-//	| ForStatement
-//	| ContinueStatement
-//	| BreakStatement
-//	| SwitchBlock
-//	| GuardStatement
-//	| ReturnStatement
-//	| ThrowStatement
+//		| DeclarationStatement
+//		| AssignmentStatement
+//		| IfStatement
+//		| WhileStatement
+//		| ForStatement
+//		| ContinueStatement
+//		| BreakStatement
+//		| SwitchBlock
+//		| GuardStatement
+//		| ReturnStatement
+//		| ThrowStatement
+//	  | TryStatement
 type BlockStatement struct {
-	Init Node `types:"Expression,DeclarationStatement,AssignmentStatement,IfStatement,WhileStatement,ForStatement,ContinueStatement,BreakStatement,SwitchBlock,GuardStatement,ReturnStatement,ThrowStatement"`
+	Init Node `types:"Expression,DeclarationStatement,AssignmentStatement,IfStatement,WhileStatement,ForStatement,ContinueStatement,BreakStatement,SwitchBlock,GuardStatement,ReturnStatement,ThrowStatement,TryStatement"`
 }
 
 func (b BlockStatement) Validate() error {
@@ -439,6 +440,10 @@ func (b BlockStatement) Validate() error {
 		}
 	} else if throw, ok := b.Init.(ThrowStatement); ok {
 		if err := throw.Validate(); err != nil {
+			return err
+		}
+	} else if try, ok := b.Init.(TryStatement); ok {
+		if err := try.Validate(); err != nil {
 			return err
 		}
 	} else {
@@ -521,8 +526,19 @@ func ParseBlockStatement(p *parser.Parser) (*BlockStatement, error) {
 			return nil, err
 		}
 		stmt.Init = *throw
+	case tokens.TRY:
+		p.Unscan()
+		try, err := ParseTryStatement(p)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Init = *try
 	default:
 		_, tok, _ := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		if tok == tokens.COMMA {
+			p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+			_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		}
 		p.Rollback(startIndex)
 		if tok == tokens.DEFINE {
 			decl, err := ParseDeclarationStatement(p)
@@ -537,8 +553,17 @@ func ParseBlockStatement(p *parser.Parser) (*BlockStatement, error) {
 				if tok == tokens.PERIOD || tok == tokens.IDENT {
 					continue
 				}
+				if tok == tokens.LSQUARE {
+					// parse index expression and ignore it; still just trying to figure out if this is an assignment
+					p.Unscan()
+					_, err := ParseIndexExpression(p)
+					if err != nil {
+						return nil, err
+					}
+					continue
+				}
 				p.Rollback(startIndex)
-				if tok == tokens.INC || tok == tokens.DEC || tok.IsAssignmentOperator() {
+				if tok == tokens.INC || tok == tokens.DEC || tok.IsAssignmentOperator() || tok == tokens.COMMA {
 					assign, err := ParseAssignmentStatement(p)
 					if err != nil {
 						return nil, err
@@ -558,19 +583,28 @@ func ParseBlockStatement(p *parser.Parser) (*BlockStatement, error) {
 	return &stmt, nil
 }
 
-// DeclarationStatement :: IDENT DEFINE Expression
+// DeclarationStatement :: IDENT (COMMA IDENT)? DEFINE (Expression | TryStatement)
 type DeclarationStatement struct {
-	pos  tokens.Position
-	Name string
-	Init Expression
+	pos             tokens.Position
+	Target          string
+	SecondaryTarget *string
+	Init            Node `types:"Expression,TryStatement"`
 }
 
 func (d DeclarationStatement) Validate() error {
-	if d.Name == "" {
-		return fmt.Errorf("parsing: empty name in DeclarationStatement")
+	if d.Target == "" {
+		return fmt.Errorf("parsing: empty target in DeclarationStatement")
 	}
-	if err := d.Init.Validate(); err != nil {
-		return err
+	if expr, ok := d.Init.(Expression); ok {
+		if err := expr.Validate(); err != nil {
+			return err
+		}
+	} else if try, ok := d.Init.(TryStatement); ok {
+		if err := try.Validate(); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("parsing: %T not allowed in DeclarationStatement", d.Init)
 	}
 	return nil
 }
@@ -584,19 +618,36 @@ func ParseDeclarationStatement(p *parser.Parser) (*DeclarationStatement, error) 
 	if tok != tokens.IDENT {
 		return nil, ExpectedError(pos, tokens.IDENT, lit)
 	}
-	stmt := DeclarationStatement{pos: pos, Name: lit}
+	stmt := DeclarationStatement{pos: pos, Target: lit}
 
 	pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	if tok == tokens.COMMA {
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		if tok != tokens.IDENT {
+			return nil, ExpectedError(pos, tokens.IDENT, lit)
+		}
+		stmt.SecondaryTarget = &lit
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	}
 	if tok != tokens.DEFINE {
 		return nil, ExpectedError(pos, tokens.DEFINE, lit)
 	}
 
-	expr, err := ParseExpression(p)
-	if err != nil {
-		return nil, err
+	_, tok, _ = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	p.Unscan()
+	if tok == tokens.TRY {
+		try, err := ParseTryStatement(p)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Init = *try
+	} else {
+		expr, err := ParseExpression(p)
+		if err != nil {
+			return nil, err
+		}
+		stmt.Init = *expr
 	}
-	stmt.Init = *expr
-
 	return &stmt, nil
 }
 
@@ -604,10 +655,11 @@ func ParseDeclarationStatement(p *parser.Parser) (*DeclarationStatement, error) 
 //
 //	| AssignmentTargetExpression (INC | DEC)
 type AssignmentStatement struct {
-	pos      tokens.Position
-	Target   AssignmentTargetExpression
-	Operator tokens.Token
-	Init     Expression
+	pos             tokens.Position
+	Target          AssignmentTargetExpression
+	SecondaryTarget *string
+	Operator        tokens.Token
+	Init            Node `types:"Expression,TryStatement"`
 }
 
 func (a AssignmentStatement) Validate() error {
@@ -617,8 +669,16 @@ func (a AssignmentStatement) Validate() error {
 	if !a.Operator.IsAssignmentOperator() {
 		return fmt.Errorf("AssignmentStatement has invalid operator: %s", a.Operator)
 	}
-	if err := a.Init.Validate(); err != nil {
-		return err
+	if expr, ok := a.Init.(Expression); ok {
+		if err := expr.Validate(); err != nil {
+			return err
+		}
+	} else if try, ok := a.Init.(TryStatement); ok {
+		if err := try.Validate(); err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("parsing: %T not allowed in AssignmentStatement", a.Init)
 	}
 	return nil
 }
@@ -633,24 +693,43 @@ func ParseAssignmentStatement(p *parser.Parser) (*AssignmentStatement, error) {
 		return nil, err
 	}
 	assign := AssignmentStatement{pos: target.pos, Target: *target}
-
 	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
-	if tok == tokens.INC || tok == tokens.DEC {
-		if tok == tokens.INC {
-			assign.Operator = tokens.ADD
-		} else {
-			assign.Operator = tokens.SUB
+	if tok == tokens.COMMA {
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+		if tok != tokens.IDENT {
+			return nil, ExpectedError(pos, tokens.IDENT, lit)
 		}
-		assign.Init = Expression{pos, Literal{pos, int64(1)}}
-	} else if tok.IsAssignmentOperator() {
-		assign.Operator = tok
-		init, err := ParseExpression(p)
+		assign.SecondaryTarget = &lit
+		pos, tok, lit = p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	} else {
+		if tok == tokens.INC || tok == tokens.DEC {
+			if tok == tokens.INC {
+				assign.Operator = tokens.ADD
+			} else {
+				assign.Operator = tokens.SUB
+			}
+			assign.Init = Expression{pos, Literal{pos, int64(1)}}
+			return &assign, nil
+		}
+	}
+	if !tok.IsAssignmentOperator() {
+		return nil, ExpectedError(pos, tokens.ILLEGAL, lit)
+	}
+	assign.Operator = tok
+
+	p.Unscan()
+	if tok == tokens.TRY {
+		try, err := ParseTryStatement(p)
 		if err != nil {
 			return nil, err
 		}
-		assign.Init = *init
+		assign.Init = *try
 	} else {
-		return nil, ExpectedError(pos, tokens.ILLEGAL, lit)
+		expr, err := ParseExpression(p)
+		if err != nil {
+			return nil, err
+		}
+		assign.Init = *expr
 	}
 	return &assign, nil
 }
@@ -1367,5 +1446,33 @@ func ParseThrowStatement(p *parser.Parser) (*ThrowStatement, error) {
 	}
 	stmt.Init = *expr
 
+	return &stmt, nil
+}
+
+// TryStatement :: TRY Expression
+type TryStatement struct {
+	pos  tokens.Position
+	Init Expression
+}
+
+func (t TryStatement) Validate() error {
+	return t.Init.Validate()
+}
+
+func (t TryStatement) Pos() tokens.Position {
+	return t.pos
+}
+
+func ParseTryStatement(p *parser.Parser) (*TryStatement, error) {
+	pos, tok, lit := p.ScanIgnore(tokens.NEWLINE, tokens.COMMENT)
+	stmt := TryStatement{pos: pos}
+	if tok != tokens.TRY {
+		return nil, ExpectedError(pos, tokens.TRY, lit)
+	}
+	expr, err := ParseExpression(p)
+	if err != nil {
+		return nil, err
+	}
+	stmt.Init = *expr
 	return &stmt, nil
 }

@@ -300,6 +300,8 @@ func TestLexKeywords(t *testing.T) {
 		{tokens.DEFAULT, "default"},
 		{tokens.RETURN, "return"},
 		{tokens.THROW, "throw"},
+		{tokens.TRY, "try"},
+		{tokens.PARTIAL, "Partial"},
 		// check this doesn't become a keyword
 		{tokens.IDENT, "abc"},
 	}

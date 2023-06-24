@@ -69,7 +69,7 @@ const (
 	RPAREN  // )
 
 	keyword_beg
-	// Keywords
+	// Control-flow Keywords
 	IMPORT
 	CONTEXT
 	USE
@@ -91,6 +91,7 @@ const (
 	RETURN
 	THROW
 	TRY
+	// Type Keywords
 	PARTIAL
 	keyword_end
 )
@@ -171,7 +172,9 @@ var tokens = []string{
 	GUARD:    "guard",
 	RETURN:   "return",
 	THROW:    "throw",
-	PARTIAL:  "Partial",
+	TRY:      "try",
+
+	PARTIAL: "Partial",
 }
 
 const (

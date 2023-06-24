@@ -6,32 +6,99 @@ import (
 	"github.com/hntrl/hyper/internal/tokens"
 )
 
+func validateSecondaryTargetForTryStatement(st *SymbolTable, secondary *string, init ast.Node) error {
+	if secondary != nil {
+		if _, ok := init.(ast.TryStatement); !ok {
+			return NodeError(init, InvalidSyntaxTree, "secondary target in declaration without try statement")
+		}
+		if secondary, ok := st.Local[*secondary]; ok {
+			switch secondaryValue := secondary.(type) {
+			case *ExpectedValueObject:
+				if err := ShouldConstruct(NewNilableClass(Error), secondaryValue.Class); err != nil {
+					return err
+				}
+			case ValueObject:
+				if err := ShouldConstruct(NewNilableClass(Error), secondaryValue.Class()); err != nil {
+					return err
+				}
+			default:
+				return StandardError(InvalidSecondaryTarget, "secondary target must be a value object")
+			}
+		}
+	}
+	return nil
+}
+
 func (st *SymbolTable) ResolveDeclarationStatement(node ast.DeclarationStatement) error {
-	if st.Immutable[node.Name] != nil {
-		return NodeError(node, CannotReassignImmutableValue, "cannot reassign immutable value %s", node.Name)
+	if st.Immutable[node.Target] != nil {
+		return NodeError(node, CannotReassignImmutableValue, "cannot reassign immutable value %s", node.Target)
 	}
-	if st.Local[node.Name] != nil {
-		return NodeError(node, CannotRedeclareValue, "cannot redeclare value %s", node.Name)
+	if st.Local[node.Target] != nil {
+		return NodeError(node, CannotRedeclareValue, "cannot redeclare value %s", node.Target)
 	}
-	value, err := st.ResolveExpression(node.Init)
+	err := validateSecondaryTargetForTryStatement(st, node.SecondaryTarget, node.Init)
 	if err != nil {
-		return err
+		return WrappedNodeError(node, err)
 	}
-	st.Local[node.Name] = value
+	switch expr := node.Init.(type) {
+	case ast.Expression:
+		value, err := st.ResolveExpression(expr)
+		if err != nil {
+			return err
+		}
+		st.Local[node.Target] = value
+	case ast.TryStatement:
+		value, err := st.ResolveExpression(expr.Init)
+		if node.SecondaryTarget != nil {
+			if err != nil {
+				st.Local[*node.SecondaryTarget] = NewNilableValue(Error, ErrorValue{
+					Name:    "Error",
+					Message: err.Error(),
+				})
+				return nil
+			} else {
+				st.Local[*node.SecondaryTarget] = NewNilableValue(Error, nil)
+			}
+		}
+		st.Local[node.Target] = value
+	default:
+		return NodeError(node, InvalidSyntaxTree, "invalid declaration statement")
+	}
 	return nil
 }
 func (st *SymbolTable) EvaluateDeclarationStatement(node ast.DeclarationStatement) error {
-	if st.Immutable[node.Name] != nil {
-		return NodeError(node, CannotReassignImmutableValue, "cannot reassign immutable value %s", node.Name)
+	if st.Immutable[node.Target] != nil {
+		return NodeError(node, CannotReassignImmutableValue, "cannot reassign immutable value %s", node.Target)
 	}
-	if st.Local[node.Name] != nil {
-		return NodeError(node, CannotRedeclareValue, "cannot redeclare value %s", node.Name)
+	if st.Local[node.Target] != nil {
+		return NodeError(node, CannotRedeclareValue, "cannot redeclare value %s", node.Target)
 	}
-	value, err := st.EvaluateExpression(node.Init)
+	err := validateSecondaryTargetForTryStatement(st, node.SecondaryTarget, node.Init)
 	if err != nil {
-		return err
+		return WrappedNodeError(node, err)
 	}
-	st.Local[node.Name] = value
+	switch expr := node.Init.(type) {
+	case ast.Expression:
+		if node.SecondaryTarget != nil {
+			return NodeError(node, InvalidSecondaryTarget, "secondary target in declaration without try statement")
+		}
+		value, err := st.EvaluateExpression(expr)
+		if err != nil {
+			return err
+		}
+		st.Local[node.Target] = value
+	case ast.TryStatement:
+		value, err := st.EvaluateExpression(expr.Init)
+		if err != nil {
+			return err
+		}
+		if node.SecondaryTarget != nil {
+			st.Local[*node.SecondaryTarget] = &ExpectedValueObject{NewNilableClass(Error)}
+		}
+		st.Local[node.Target] = value
+	default:
+		return NodeError(node, InvalidSyntaxTree, "invalid declaration statement")
+	}
 	return nil
 }
 
@@ -224,10 +291,33 @@ func (st *SymbolTable) ResolveAssignmentStatement(node ast.AssignmentStatement) 
 	if !ok {
 		return NodeError(node.Target, InvalidAssignmentTarget, "assignment target must be a value object")
 	}
-	operand, err := st.ResolveExpression(node.Init)
+	err := validateSecondaryTargetForTryStatement(st, node.SecondaryTarget, node.Init)
 	if err != nil {
-		return err
+		return WrappedNodeError(node, err)
 	}
+
+	var operand ValueObject
+	switch expr := node.Init.(type) {
+	case ast.Expression:
+		operand, err = st.ResolveExpression(expr)
+		if err != nil {
+			return err
+		}
+	case ast.TryStatement:
+		operand, err = st.ResolveExpression(expr.Init)
+		if node.SecondaryTarget != nil {
+			if err != nil {
+				st.Local[*node.SecondaryTarget] = NewNilableValue(Error, ErrorValue{
+					Name:    "Error",
+					Message: err.Error(),
+				})
+				return nil
+			} else {
+				st.Local[*node.SecondaryTarget] = NewNilableValue(Error, nil)
+			}
+		}
+	}
+
 	if len(node.Target.Members) > 1 {
 		effectOperator := tokens.GetEffectOperator(node.Operator)
 		operandPredicate := func(currentValue ValueObject) (ValueObject, error) {
@@ -262,14 +352,32 @@ func (st *SymbolTable) EvaluateAssignmentStatement(node ast.AssignmentStatement)
 	if scopeValue == nil {
 		return NodeError(node.Target, UnknownSelector, "unknown selector %s", firstMember)
 	}
-	currentObject, ok := scopeValue.(*ExpectedValueObject)
+	currentValue, ok := scopeValue.(*ExpectedValueObject)
 	if !ok {
 		return NodeError(node.Target, InvalidAssignmentTarget, "assignment target must be a value object")
 	}
-	operand, err := st.EvaluateExpression(node.Init)
+	err := validateSecondaryTargetForTryStatement(st, node.SecondaryTarget, node.Init)
 	if err != nil {
-		return err
+		return WrappedNodeError(node, err)
 	}
+
+	var operand *ExpectedValueObject
+	switch expr := node.Init.(type) {
+	case ast.Expression:
+		operand, err = st.EvaluateExpression(expr)
+		if err != nil {
+			return err
+		}
+	case ast.TryStatement:
+		operand, err = st.EvaluateExpression(expr.Init)
+		if err != nil {
+			return err
+		}
+		if node.SecondaryTarget != nil {
+			st.Local[*node.SecondaryTarget] = &ExpectedValueObject{NewNilableClass(Error)}
+		}
+	}
+
 	if len(node.Target.Members) > 1 {
 		effectOperator := tokens.GetEffectOperator(node.Operator)
 		operandValidator := func(currentClass Class) error {
@@ -279,12 +387,12 @@ func (st *SymbolTable) EvaluateAssignmentStatement(node ast.AssignmentStatement)
 				return ShouldOperate(effectOperator, currentClass, operand.Class)
 			}
 		}
-		err := evaluateAssignmentStatementForMembers(st, node.Target.Members[1:], currentObject, operandValidator)
+		err := evaluateAssignmentStatementForMembers(st, node.Target.Members[1:], currentValue, operandValidator)
 		if err != nil {
 			return WrappedNodeError(node.Target, err)
 		}
 	} else {
-		err := ShouldConstruct(currentObject.Class, operand.Class)
+		err := ShouldConstruct(currentValue.Class, operand.Class)
 		if err != nil {
 			return WrappedNodeError(node.Target, err)
 		}
@@ -642,7 +750,7 @@ func (st *SymbolTable) EvaluateGuardStatement(node ast.GuardStatement) error {
 	return nil
 }
 
-func (st *SymbolTable) ResolveBlockStatement(node ast.BlockStatement) (returnObject ValueObject, err error) {
+func (st *SymbolTable) ResolveBlockStatement(node ast.BlockStatement) (returnValue ValueObject, err error) {
 	switch node := node.Init.(type) {
 	case ast.Expression:
 		_, err = st.ResolveExpression(node)
@@ -651,35 +759,37 @@ func (st *SymbolTable) ResolveBlockStatement(node ast.BlockStatement) (returnObj
 	case ast.AssignmentStatement:
 		err = st.ResolveAssignmentStatement(node)
 	case ast.IfStatement:
-		returnObject, err = st.ResolveIfStatement(node)
+		returnValue, err = st.ResolveIfStatement(node)
 	case ast.WhileStatement:
-		returnObject, err = st.ResolveWhileStatement(node)
+		returnValue, err = st.ResolveWhileStatement(node)
 	case ast.ForStatement:
-		returnObject, err = st.ResolveForStatement(node)
+		returnValue, err = st.ResolveForStatement(node)
 	case ast.ContinueStatement:
 		st.LoopState.ShouldContinue = true
 	case ast.BreakStatement:
 		st.LoopState.ShouldBreak = true
 	case ast.SwitchBlock:
-		returnObject, err = st.ResolveSwitchBlock(node)
+		returnValue, err = st.ResolveSwitchBlock(node)
 	case ast.GuardStatement:
 		err = st.ResolveGuardStatement(node)
 	case ast.ReturnStatement:
-		returnObject, err = st.ResolveExpression(node.Init)
+		returnValue, err = st.ResolveExpression(node.Init)
 	case ast.ThrowStatement:
-		returnObject, err = st.ResolveExpression(node.Init)
+		returnValue, err = st.ResolveExpression(node.Init)
 		if err != nil {
 			return nil, err
 		}
-		thrownError, ok := returnObject.(ErrorValue)
+		thrownError, ok := returnValue.(ErrorValue)
 		if !ok {
-			return nil, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnObject.Class().Descriptors().Name)
+			return nil, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returnValue.Class().Descriptors().Name)
 		}
 		return nil, thrownError
+	case ast.TryStatement:
+		st.ResolveExpression(node.Init)
 	default:
 		return nil, NodeError(node, InvalidSyntaxTree, "unknown block statement type %T", node)
 	}
-	return returnObject, err
+	return returnValue, err
 }
 func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldReturn Class) (returns bool, err error) {
 	switch node := node.Init.(type) {
@@ -731,6 +841,11 @@ func (st *SymbolTable) EvaluateBlockStatement(node ast.BlockStatement, shouldRet
 			return false, NodeError(node, InvalidThrowValue, "throw statement must be an Error, got %s", returned.Class.Descriptors().Name)
 		}
 		return true, nil
+	case ast.TryStatement:
+		_, err := st.EvaluateExpression(node.Init)
+		if err != nil {
+			return false, err
+		}
 	default:
 		return false, NodeError(node, InvalidSyntaxTree, "unknown block statement type %T", node)
 	}
