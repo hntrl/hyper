@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
-	"github.com/hntrl/hyper/internal/domain"
-	"github.com/hntrl/hyper/internal/interfaces"
-	"github.com/hntrl/hyper/internal/runtime"
+	"github.com/hntrl/hyper/src/hyper/domain"
+	"github.com/hntrl/hyper/src/hyper/interfaces"
+	"github.com/hntrl/hyper/src/hyper/runtime"
 	"github.com/spf13/cobra"
 )
 
